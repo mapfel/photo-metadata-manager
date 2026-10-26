@@ -1,0 +1,25 @@
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+
+
+class Source(Enum):
+    """A place where metadata can live. `family` selects the tag names in mapping.yaml."""
+
+    EXIF = ("Exif", "exif")
+    XMP_EMBEDDED = ("XMP (embedded)", "xmp")
+    XMP_SIDECAR = ("XMP (sidecar)", "xmp")
+    IPTC = ("IPTC", "iptc")
+
+    def __init__(self, label: str, family: str) -> None:
+        self.label = label
+        self.family = family
+
+
+@dataclass
+class RawMetadata:
+    """All tags found per source, as exiv2 key -> list of display strings."""
+
+    tags: dict[Source, dict[str, list[str]]] = field(default_factory=dict)
+    sidecar_path: Path | None = None
+    errors: list[str] = field(default_factory=list)

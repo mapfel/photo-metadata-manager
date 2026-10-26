@@ -1,0 +1,39 @@
+# Maps a user-facing field to the exiv2 tag keys that hold it in each metadata family.
+# Tags are tried in order; the first one with a value wins.
+# The "xmp" family is used for both embedded XMP and the sidecar file.
+# Tag reference: https://exiv2.org/metadata.html
+
+fields:
+  - name: Title
+    exif: [Exif.Image.XPTitle]
+    xmp: [Xmp.dc.title]
+    iptc: [Iptc.Application2.ObjectName]
+
+  - name: Description
+    exif: [Exif.Image.ImageDescription, Exif.Photo.UserComment, Exif.Image.XPComment]
+    xmp: [Xmp.dc.description]
+    iptc: [Iptc.Application2.Caption]
+
+  - name: Author
+    exif: [Exif.Image.Artist, Exif.Image.XPAuthor]
+    xmp: [Xmp.dc.creator]
+    iptc: [Iptc.Application2.Byline]
+
+  - name: Copyright
+    exif: [Exif.Image.Copyright]
+    xmp: [Xmp.dc.rights]
+    iptc: [Iptc.Application2.Copyright]
+
+  - name: Keywords
+    exif: [Exif.Image.XPKeywords]
+    xmp: [Xmp.dc.subject]
+    iptc: [Iptc.Application2.Keywords]
+
+  - name: Rating
+    exif: [Exif.Image.Rating]
+    xmp: [Xmp.xmp.Rating]
+
+  - name: Date Taken
+    exif: [Exif.Photo.DateTimeOriginal, Exif.Image.DateTime]
+    xmp: [Xmp.photoshop.DateCreated, Xmp.exif.DateTimeOriginal, Xmp.xmp.CreateDate]
+    iptc: [Iptc.Application2.DateCreated]
