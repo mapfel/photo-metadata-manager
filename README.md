@@ -68,6 +68,13 @@ path in the status bar:
 - `sync_fields`: fields shown in the synchronize dialog (default: Rating, Color Label,
   Date Taken).
 
+The app reopens the last folder (stored in `state.ini` next to `config.json`); if that
+folder no longer exists, it starts in the Pictures folder.
+
+**Rescan metadata** in the toolbar (F5 on Windows/Linux, Cmd+R on macOS) reads the folder
+and the metadata again, e.g. after another program changed them. Unapplied choices in the
+metadata table are discarded; the selection is kept unless files were added or removed.
+
 ## Synchronizing metadata
 
 The metadata table below the thumbnails works the same way as the dialog described next,

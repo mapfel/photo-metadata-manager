@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths, Qt
+from PySide6.QtCore import QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QMainWindow, QSplitter, QToolBar
 
@@ -13,13 +13,23 @@ from metadata_comparer.ui.metadata_panel import MetadataPanel
 from metadata_comparer.ui.sync_dialog import SyncDialog
 from metadata_comparer.ui.thumbnail_view import PATH_ROLE, ThumbnailView
 
+LAST_FOLDER_KEY = "last_folder"
+
 
 class MainWindow(QMainWindow):
-    def __init__(self, config: Config | None = None, mappings: list[FieldMapping] | None = None):
+    def __init__(
+        self,
+        config: Config | None = None,
+        mappings: list[FieldMapping] | None = None,
+        settings: QSettings | None = None,
+    ):
+        """`settings` stores UI state such as the last folder; None keeps nothing."""
         super().__init__()
         self.setWindowTitle("Metadata Comparer")
         self._config = config or Config()
         self._mappings = mappings or load_mappings()
+        self._settings = settings
+        self._folder: Path | None = None
 
         self.folder_tree = FolderTree()
         self.thumbnails = ThumbnailView(self._check_sync)
@@ -41,10 +51,18 @@ class MainWindow(QMainWindow):
         self.sync_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
         self.sync_action.setEnabled(False)
         self.sync_action.triggered.connect(self._sync_selected_images)
+        self.rescan_action = QAction("Rescan metadata", self)
+        self.rescan_action.setToolTip(
+            "Read the folder and the metadata again, e.g. after another program changed them"
+        )
+        self.rescan_action.setShortcut(QKeySequence.StandardKey.Refresh)
+        self.rescan_action.setEnabled(False)
+        self.rescan_action.triggered.connect(self.rescan)
         toolbar = QToolBar("Main")
         toolbar.setObjectName("main_toolbar")
         toolbar.setMovable(False)
         toolbar.addAction(self.sync_action)
+        toolbar.addAction(self.rescan_action)
         self.addToolBar(toolbar)
 
         self.folder_tree.folder_selected.connect(self._show_folder)
@@ -53,9 +71,32 @@ class MainWindow(QMainWindow):
         self.thumbnails.selection_changed.connect(self._update_sync_action)
         self.metadata_panel.metadata_written.connect(self.thumbnails.thumbnail_model.refresh)
 
-        self.folder_tree.select_folder(_start_folder())
+        self.folder_tree.select_folder(self._start_folder())
+
+    def rescan(self) -> None:
+        """Pick up changes made by other programs; unapplied table choices are dropped."""
+        if self._folder is None:
+            return
+        self.thumbnails.rescan()
+        current = self.thumbnails.currentIndex()
+        if current.isValid():
+            self._show_metadata(current.data(PATH_ROLE))
+        else:
+            self.metadata_panel.show_image(None)
+        count = self.thumbnails.thumbnail_model.rowCount()
+        self.statusBar().showMessage(f"Rescanned {self._folder} – {count} image(s)")
+
+    def _start_folder(self) -> Path:
+        last = self._settings.value(LAST_FOLDER_KEY) if self._settings else None
+        if last and Path(last).is_dir():
+            return Path(last)
+        return _default_folder()
 
     def _show_folder(self, folder: Path) -> None:
+        self._folder = folder
+        self.rescan_action.setEnabled(True)
+        if self._settings is not None:
+            self._settings.setValue(LAST_FOLDER_KEY, str(folder))
         self.thumbnails.set_folder(folder)
         self.metadata_panel.show_image(None)
         count = self.thumbnails.thumbnail_model.rowCount()
@@ -102,6 +143,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"{image.name} – no sidecar")
 
 
-def _start_folder() -> Path:
+def _default_folder() -> Path:
     pictures = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation)
     return Path(pictures) if pictures and Path(pictures).is_dir() else Path.home()

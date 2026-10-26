@@ -94,6 +94,7 @@ class ThumbnailModel(QAbstractListModel):
     def __init__(self, checker: SyncChecker, parent=None) -> None:
         super().__init__(parent)
         self._checker = checker
+        self._folder: Path | None = None
         self._paths: list[Path] = []
         self._thumbnails: dict[int, QPixmap] = {}
         self._image_sizes: dict[int, QSize] = {}
@@ -107,6 +108,7 @@ class ThumbnailModel(QAbstractListModel):
     def set_folder(self, folder: Path) -> None:
         self._pool.clear()
         self.beginResetModel()
+        self._folder = folder
         self._generation += 1
         self._paths = list_images(folder)
         self._thumbnails.clear()
@@ -114,6 +116,17 @@ class ThumbnailModel(QAbstractListModel):
         self._reports.clear()
         self._requested.clear()
         self.endResetModel()
+
+    def rescan(self) -> None:
+        """Re-read the folder. If its images are unchanged, reload thumbnails and sync
+        status of those already shown (keeps the selection); otherwise start over."""
+        if self._folder is None:
+            return
+        if list_images(self._folder) != self._paths:
+            self.set_folder(self._folder)
+            return
+        for row in sorted(self._requested):
+            self._start_loader(row)
 
     def refresh(self, path: Path) -> None:
         """Reload thumbnail and sync status of `path`; the old thumbnail stays until then."""
@@ -250,6 +263,9 @@ class ThumbnailView(QListView):
 
     def set_folder(self, folder: Path) -> None:
         self.thumbnail_model.set_folder(folder)
+
+    def rescan(self) -> None:
+        self.thumbnail_model.rescan()
 
     def selected_images(self) -> list[Path]:
         rows = sorted(index.row() for index in self.selectionModel().selectedIndexes())
