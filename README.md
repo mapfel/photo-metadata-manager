@@ -39,6 +39,33 @@ QT_QPA_PLATFORM=offscreen uv run pytest
 Running the GUI through WSLg additionally needs Qt's X11 libraries:
 `sudo apt install libxcb-cursor0 libxkbcommon-x11-0`.
 
+## Configuration
+
+On first start the app writes `config.json` to the user configuration folder and shows its
+path in the status bar:
+
+| OS      | Location                                            |
+|---------|-----------------------------------------------------|
+| Windows | `%LOCALAPPDATA%\metadata-comparer\config.json`      |
+| macOS   | `~/Library/Preferences/metadata-comparer/config.json` |
+| Linux   | `~/.config/metadata-comparer/config.json`           |
+
+```json
+{
+  "master_source": "xmp_embedded",
+  "compared_fields": ["Rating", "Color Label"]
+}
+```
+
+- `master_source`: `exif`, `xmp_embedded`, `xmp_sidecar` or `iptc`. Marked with ★ in the table.
+- `compared_fields`: field names from `mapping.yaml` that are checked against the master for
+  every thumbnail:
+  - **red frame**: another source holds a different value (or a value the master lacks),
+  - **yellow frame**: the master has a value that another source is missing.
+
+  Sources that cannot store a field (e.g. color labels in Exif/IPTC) and a sidecar that does
+  not exist are not checked. A rating of `0` counts as "unrated", i.e. empty.
+
 ## Development
 
 ```sh

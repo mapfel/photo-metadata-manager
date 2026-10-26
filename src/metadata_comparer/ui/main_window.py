@@ -3,23 +3,26 @@ from pathlib import Path
 from PySide6.QtCore import QStandardPaths, Qt
 from PySide6.QtWidgets import QMainWindow, QSplitter
 
+from metadata_comparer.config import Config
 from metadata_comparer.metadata.comparison import compare
-from metadata_comparer.metadata.mapping import load_mappings
+from metadata_comparer.metadata.mapping import FieldMapping, load_mappings
 from metadata_comparer.metadata.reader import read_metadata
+from metadata_comparer.metadata.sync import SyncReport, check_sync
 from metadata_comparer.ui.folder_tree import FolderTree
 from metadata_comparer.ui.metadata_table import MetadataTable
 from metadata_comparer.ui.thumbnail_view import ThumbnailView
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, config: Config | None = None, mappings: list[FieldMapping] | None = None):
         super().__init__()
         self.setWindowTitle("Metadata Comparer")
-        self._mappings = load_mappings()
+        self._config = config or Config()
+        self._mappings = mappings or load_mappings()
 
         self.folder_tree = FolderTree()
-        self.thumbnails = ThumbnailView()
-        self.metadata_table = MetadataTable()
+        self.thumbnails = ThumbnailView(self._check_sync)
+        self.metadata_table = MetadataTable(self._config.master_source)
 
         right = QSplitter(Qt.Orientation.Vertical)
         right.addWidget(self.thumbnails)
@@ -42,6 +45,15 @@ class MainWindow(QMainWindow):
         self.metadata_table.set_rows([])
         count = self.thumbnails.thumbnail_model.rowCount()
         self.statusBar().showMessage(f"{folder} – {count} image(s)")
+
+    def _check_sync(self, image: Path) -> SyncReport:
+        # Runs on thumbnail loader threads; only reads immutable state.
+        return check_sync(
+            read_metadata(image),
+            self._mappings,
+            self._config.master_source,
+            self._config.compared_fields,
+        )
 
     def _show_metadata(self, image: Path) -> None:
         raw = read_metadata(image)

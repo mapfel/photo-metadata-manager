@@ -1,5 +1,12 @@
+import time
+
+from PySide6.QtCore import Qt
+
+from metadata_comparer.config import Config
+from metadata_comparer.metadata.sources import Source
+from metadata_comparer.metadata.sync import SyncReport, SyncStatus
 from metadata_comparer.ui.main_window import MainWindow
-from metadata_comparer.ui.thumbnail_view import list_images
+from metadata_comparer.ui.thumbnail_view import SYNC_ROLE, ThumbnailModel, list_images
 
 
 def test_list_images_filters_and_sorts(tmp_path):
@@ -20,3 +27,24 @@ def test_selecting_image_fills_metadata_table(qapp, jpeg_file):
     table = window.metadata_table.table_model
     assert table.columnCount() == 5
     assert table.rowCount() == len(window._mappings)
+
+
+def test_thumbnail_model_reports_sync_status(qapp, jpeg_file):
+    report = SyncReport(SyncStatus.CONFLICT, ("Rating: Exif has '2', XMP (embedded) has '3'",))
+    model = ThumbnailModel(lambda path: report)
+    model.set_folder(jpeg_file.parent)
+    index = model.index(0)
+
+    model.data(index, Qt.ItemDataRole.DecorationRole)  # starts the background load
+    deadline = time.monotonic() + 5
+    while model.data(index, SYNC_ROLE) is None and time.monotonic() < deadline:
+        qapp.processEvents()
+
+    assert model.data(index, SYNC_ROLE) == report
+    assert "Rating: Exif has '2'" in model.data(index, Qt.ItemDataRole.ToolTipRole)
+
+
+def test_master_column_is_marked(qapp):
+    window = MainWindow(Config(master_source=Source.IPTC))
+    header = window.metadata_table.table_model.headerData(4, Qt.Orientation.Horizontal, 0)
+    assert header == "IPTC ★ master"

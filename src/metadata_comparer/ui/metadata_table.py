@@ -12,8 +12,9 @@ CONFLICT_BRUSH = QBrush(QColor(255, 200, 80, 90))
 class MetadataTableModel(QAbstractTableModel):
     """One row per field; column 0 is the field name, then one column per source."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, master: Source, parent=None) -> None:
         super().__init__(parent)
+        self._master = master
         self._rows: list[ComparisonRow] = []
 
     def set_rows(self, rows: list[ComparisonRow]) -> None:
@@ -30,7 +31,10 @@ class MetadataTableModel(QAbstractTableModel):
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = 0):
         if orientation != Qt.Orientation.Horizontal or role != Qt.ItemDataRole.DisplayRole:
             return None
-        return "Field" if section == 0 else SOURCES[section - 1].label
+        if section == 0:
+            return "Field"
+        source = SOURCES[section - 1]
+        return f"{source.label} ★ master" if source == self._master else source.label
 
     def data(self, index: QModelIndex | QPersistentModelIndex, role: int = 0):
         if not index.isValid():
@@ -50,9 +54,9 @@ class MetadataTableModel(QAbstractTableModel):
 
 
 class MetadataTable(QTableView):
-    def __init__(self, parent=None) -> None:
+    def __init__(self, master: Source, parent=None) -> None:
         super().__init__(parent)
-        self.table_model = MetadataTableModel(self)
+        self.table_model = MetadataTableModel(master, self)
         self.setModel(self.table_model)
         self.setWordWrap(True)
         self.setAlternatingRowColors(True)
