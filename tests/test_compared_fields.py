@@ -52,6 +52,7 @@ def test_clicking_the_field_name_toggles_and_saves(qapp, jpeg_file, tmp_path):
     window.show()
     window._show_folder(jpeg_file.parent)
     window.thumbnails.setCurrentIndex(window.thumbnails.thumbnail_model.index(0))
+    qapp.processEvents()  # let the header layout settle before computing click positions
     vertical = window.metadata_panel.table.verticalHeader()
     title_row = [m.name for m in window._mappings].index("Title")
     position = vertical.sectionViewportPosition(title_row) + vertical.sectionSize(title_row) // 2
@@ -112,6 +113,7 @@ def test_compared_sources_are_bold_and_toggle_on_click(qapp, jpeg_file, tmp_path
     assert source_header(window, 2, bold) is None  # sidecar
     assert source_header(window, 4, bold) is None  # Custom is never compared
 
+    qapp.processEvents()  # let the header layout settle before computing click positions
     horizontal = window.metadata_panel.table.horizontalHeader()
     sidecar_x = horizontal.sectionViewportPosition(2) + horizontal.sectionSize(2) // 2
     QTest.mouseClick(horizontal.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(sidecar_x, 5))

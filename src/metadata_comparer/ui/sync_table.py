@@ -420,6 +420,10 @@ class SyncTable(QTableView):
         self.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)  # editing starts on click
         self.setWordWrap(True)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # Bold header text means "compared"; Qt's bold highlight of the current row/column
+        # would blur that and, by changing widths, shift sections between press and release.
+        self.horizontalHeader().setHighlightSections(False)
+        self.verticalHeader().setHighlightSections(False)
         self.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
