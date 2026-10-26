@@ -16,6 +16,7 @@ def main() -> int:
 
     mappings = load_mappings()
     config_path = _config_path()
+    saved_config_path: Path | None = config_path
     try:
         if not config_path.exists():
             write_default_config(config_path)
@@ -23,10 +24,11 @@ def main() -> int:
     except (OSError, ConfigError) as error:
         QMessageBox.warning(None, "Configuration", f"{error}\n\nUsing the default settings.")
         config = Config()
+        saved_config_path = None  # do not overwrite a file the user has to fix
 
     # UI state (e.g. the last folder) lives next to config.json, as an INI file.
     settings = QSettings(str(config_path.with_name("state.ini")), QSettings.Format.IniFormat)
-    window = MainWindow(config, mappings, settings)
+    window = MainWindow(config, mappings, settings, saved_config_path)
     window.resize(1400, 900)
     window.show()
     window.statusBar().showMessage(f"Configuration: {config_path}")

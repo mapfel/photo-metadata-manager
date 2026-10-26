@@ -60,11 +60,21 @@ def _field_list(
 
 
 def write_default_config(path: Path) -> None:
-    defaults = Config()
-    document = {
-        "master_source": _source_id(defaults.master_source),
-        "compared_fields": list(defaults.compared_fields),
-        "sync_fields": list(defaults.sync_fields),
+    save_config(path, Config())
+
+
+def save_config(path: Path, config: Config) -> None:
+    """Write `config` to `path`, keeping keys of an existing file that Config does not know."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        document = {}
+    if not isinstance(document, dict):
+        document = {}
+    document |= {
+        "master_source": _source_id(config.master_source),
+        "compared_fields": list(config.compared_fields),
+        "sync_fields": list(config.sync_fields),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")

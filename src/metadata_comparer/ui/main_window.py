@@ -1,10 +1,11 @@
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QMainWindow, QSplitter, QToolBar
 
-from metadata_comparer.config import Config
+from metadata_comparer.config import Config, save_config
 from metadata_comparer.metadata.mapping import FieldMapping, load_mappings
 from metadata_comparer.metadata.reader import read_metadata
 from metadata_comparer.metadata.sync import SyncReport, check_sync
@@ -22,18 +23,23 @@ class MainWindow(QMainWindow):
         config: Config | None = None,
         mappings: list[FieldMapping] | None = None,
         settings: QSettings | None = None,
+        config_path: Path | None = None,
     ):
-        """`settings` stores UI state such as the last folder; None keeps nothing."""
+        """`settings` stores UI state such as the last folder; None keeps nothing.
+        Changes made in the UI to the configuration are saved to `config_path`, if given."""
         super().__init__()
         self.setWindowTitle("Metadata Comparer")
         self._config = config or Config()
+        self._config_path = config_path
         self._mappings = mappings or load_mappings()
         self._settings = settings
         self._folder: Path | None = None
 
         self.folder_tree = FolderTree()
         self.thumbnails = ThumbnailView(self._check_sync)
-        self.metadata_panel = MetadataPanel(self._mappings, self._config.master_source)
+        self.metadata_panel = MetadataPanel(
+            self._mappings, self._config.master_source, frozenset(self._config.compared_fields)
+        )
 
         right = QSplitter(Qt.Orientation.Vertical)
         right.addWidget(self.thumbnails)
@@ -70,6 +76,7 @@ class MainWindow(QMainWindow):
         self.thumbnails.image_activated.connect(lambda image: self._open_sync_dialog([image]))
         self.thumbnails.selection_changed.connect(self._update_sync_action)
         self.metadata_panel.metadata_written.connect(self.thumbnails.thumbnail_model.refresh)
+        self.metadata_panel.compared_field_toggled.connect(self.toggle_compared_field)
 
         self.folder_tree.select_folder(self._start_folder())
 
@@ -85,6 +92,25 @@ class MainWindow(QMainWindow):
             self.metadata_panel.show_image(None)
         count = self.thumbnails.thumbnail_model.rowCount()
         self.statusBar().showMessage(f"Rescanned {self._folder} – {count} image(s)")
+
+    def toggle_compared_field(self, field: str) -> None:
+        """Include or exclude `field` from the thumbnail frames and re-check the thumbnails."""
+        fields = self._config.compared_fields
+        if field in fields:
+            fields = tuple(name for name in fields if name != field)
+        else:
+            mapping_order = [mapping.name for mapping in self._mappings]
+            fields = tuple(sorted({*fields, field}, key=mapping_order.index))
+        # Loader threads read self._config; swapping the reference keeps that safe.
+        self._config = replace(self._config, compared_fields=fields)
+        self.metadata_panel.model.set_compared_fields(frozenset(fields))
+        if self._config_path is not None:
+            try:
+                save_config(self._config_path, self._config)
+            except OSError as error:
+                self.statusBar().showMessage(f"Could not save the configuration: {error}")
+        # Only the thumbnails depend on it; the table keeps its unapplied choices.
+        self.thumbnails.rescan()
 
     def _start_folder(self) -> Path:
         last = self._settings.value(LAST_FOLDER_KEY) if self._settings else None

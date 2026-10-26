@@ -18,13 +18,25 @@ class MetadataPanel(QWidget):
     """Metadata of the current image, editable like the sync dialog, with an Apply button."""
 
     metadata_written = Signal(Path)
+    compared_field_toggled = Signal(str)  # a field name header was clicked
 
-    def __init__(self, mappings: list[FieldMapping], master: Source, parent=None) -> None:
+    def __init__(
+        self,
+        mappings: list[FieldMapping],
+        master: Source,
+        compared_fields: frozenset[str] = frozenset(),
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self._mappings = mappings
         self._image: Path | None = None
         self.model = SyncTableModel(mappings, master, self)
+        self.model.set_compared_fields(compared_fields)
         self.table = SyncTable(self.model)
+        self.table.verticalHeader().setSectionsClickable(True)
+        self.table.verticalHeader().sectionClicked.connect(
+            lambda row: self.compared_field_toggled.emit(mappings[row].name)
+        )
         self.status = QLabel()
         self.apply_button = QPushButton("Apply")
         self.apply_button.setToolTip("Copy the truth into the ticked cells")

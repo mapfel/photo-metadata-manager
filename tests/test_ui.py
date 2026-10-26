@@ -48,7 +48,7 @@ def test_thumbnail_model_reports_sync_status(qapp, jpeg_file):
 def test_master_column_is_marked(qapp):
     window = MainWindow(Config(master_source=Source.IPTC))
     header = window.metadata_panel.model.headerData(3, Qt.Orientation.Horizontal, 0)
-    assert header == "IPTC ★ master"
+    assert header == "IPTC\n★ master"
 
 
 def test_sync_action_follows_selection(qapp, tmp_path):

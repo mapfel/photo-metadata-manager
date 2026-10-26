@@ -15,7 +15,7 @@ from PySide6.QtCore import (
     Qt,
     Signal,
 )
-from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QHeaderView,
@@ -98,6 +98,8 @@ class SyncTableModel(QAbstractTableModel):
         self._images: list[ImageMetadata] = []
         self.selections: dict[str, RowSelection] = {}
         self.custom_texts: dict[str, str] = {}  # typed per field; kept when the truth moves
+        # Fields checked for the thumbnail frames, shown in bold; None hides the marking.
+        self.compared_fields: frozenset[str] | None = None
 
     @property
     def images(self) -> list[ImageMetadata]:
@@ -117,7 +119,22 @@ class SyncTableModel(QAbstractTableModel):
     def columnCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(SOURCES) + 1
 
+    def set_compared_fields(self, fields: frozenset[str]) -> None:
+        self.compared_fields = fields
+        if self.rowCount():
+            self.headerDataChanged.emit(Qt.Orientation.Vertical, 0, self.rowCount() - 1)
+
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = 0):
+        if orientation == Qt.Orientation.Vertical and self.compared_fields is not None:
+            compared = self._mappings[section].name in self.compared_fields
+            if role == Qt.ItemDataRole.FontRole and compared:
+                font = QFont()
+                font.setBold(True)
+                return font
+            if role == Qt.ItemDataRole.ToolTipRole:
+                if compared:
+                    return "Checked for the thumbnail frames (bold). Click to exclude."
+                return "Not checked for the thumbnail frames. Click to include."
         if role != Qt.ItemDataRole.DisplayRole:
             return None
         if orientation == Qt.Orientation.Vertical:
@@ -125,7 +142,7 @@ class SyncTableModel(QAbstractTableModel):
         if section == CUSTOM_COLUMN:
             return "Custom"
         source = SOURCES[section]
-        label = f"{source.label} ★ master" if source == self._master else source.label
+        label = f"{source.label}\n★ master" if source == self._master else source.label
         if source == Source.XMP_SIDECAR and self._images:
             with_sidecar = sum(image.has_sidecar for image in self._images)
             if with_sidecar == 0:

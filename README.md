@@ -63,6 +63,9 @@ path in the status bar:
   - **red frame**: another source holds a different value (or a value the master lacks),
   - **yellow frame**: the master has a value that another source is missing.
 
+  In the metadata table these fields are shown in **bold**; clicking a field name there
+  includes or excludes it, saves `config.json` and re-checks the thumbnails at once.
+
   Sources that cannot store a field (e.g. color labels in Exif/IPTC) and a sidecar that does
   not exist are not checked. A rating of `0` counts as "unrated", i.e. empty.
 - `sync_fields`: fields shown in the synchronize dialog (default: Rating, Color Label,
