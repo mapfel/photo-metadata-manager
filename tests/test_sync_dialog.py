@@ -8,10 +8,10 @@ from metadata_comparer.metadata.comparison import CellValue, ComparisonRow
 from metadata_comparer.metadata.mapping import load_mappings
 from metadata_comparer.metadata.reader import read_metadata
 from metadata_comparer.metadata.sources import Source
-from metadata_comparer.ui.sync_dialog import (
+from metadata_comparer.ui.sync_dialog import SyncDialog
+from metadata_comparer.ui.sync_table import (
     CellState,
     ImageMetadata,
-    SyncDialog,
     SyncTable,
     SyncTableModel,
     checkbox_rect,
@@ -45,7 +45,8 @@ def image(name, exif_rating, xmp_rating, label="Red", has_sidecar=False):
             },
         ),
     ]
-    return ImageMetadata(Path(name), rows, has_sidecar)
+    sidecar = Path(name).with_suffix(".xmp") if has_sidecar else None
+    return ImageMetadata(Path(name), rows, sidecar)
 
 
 @pytest.fixture
@@ -213,7 +214,7 @@ def test_cancelled_batch_writes_nothing(tmp_path, qapp, monkeypatch):
     dialog.model.set_images([image("a.jpg", "2", "4"), image("b.jpg", "3", "4")])
     monkeypatch.setattr(dialog, "confirm", lambda changes: False)
     monkeypatch.setattr(
-        "metadata_comparer.ui.sync_dialog.apply_changes",
+        "metadata_comparer.ui.sync_table.apply_changes",
         lambda *args: pytest.fail("must not write"),
     )
     dialog.model.click_cell(dialog.model.index(0, XMP))

@@ -5,12 +5,11 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import QMainWindow, QSplitter, QToolBar
 
 from metadata_comparer.config import Config
-from metadata_comparer.metadata.comparison import compare
 from metadata_comparer.metadata.mapping import FieldMapping, load_mappings
 from metadata_comparer.metadata.reader import read_metadata
 from metadata_comparer.metadata.sync import SyncReport, check_sync
 from metadata_comparer.ui.folder_tree import FolderTree
-from metadata_comparer.ui.metadata_table import MetadataTable
+from metadata_comparer.ui.metadata_panel import MetadataPanel
 from metadata_comparer.ui.sync_dialog import SyncDialog
 from metadata_comparer.ui.thumbnail_view import PATH_ROLE, ThumbnailView
 
@@ -24,11 +23,11 @@ class MainWindow(QMainWindow):
 
         self.folder_tree = FolderTree()
         self.thumbnails = ThumbnailView(self._check_sync)
-        self.metadata_table = MetadataTable(self._config.master_source)
+        self.metadata_panel = MetadataPanel(self._mappings, self._config.master_source)
 
         right = QSplitter(Qt.Orientation.Vertical)
         right.addWidget(self.thumbnails)
-        right.addWidget(self.metadata_table)
+        right.addWidget(self.metadata_panel)
         right.setSizes([550, 350])
 
         main = QSplitter(Qt.Orientation.Horizontal)
@@ -52,12 +51,13 @@ class MainWindow(QMainWindow):
         self.thumbnails.image_selected.connect(self._show_metadata)
         self.thumbnails.image_activated.connect(lambda image: self._open_sync_dialog([image]))
         self.thumbnails.selection_changed.connect(self._update_sync_action)
+        self.metadata_panel.metadata_written.connect(self.thumbnails.thumbnail_model.refresh)
 
         self.folder_tree.select_folder(_start_folder())
 
     def _show_folder(self, folder: Path) -> None:
         self.thumbnails.set_folder(folder)
-        self.metadata_table.set_rows([])
+        self.metadata_panel.show_image(None)
         count = self.thumbnails.thumbnail_model.rowCount()
         self.statusBar().showMessage(f"{folder} – {count} image(s)")
 
@@ -92,12 +92,12 @@ class MainWindow(QMainWindow):
             self._show_metadata(image)
 
     def _show_metadata(self, image: Path) -> None:
-        raw = read_metadata(image)
-        self.metadata_table.set_rows(compare(raw, self._mappings))
-        if raw.errors:
-            self.statusBar().showMessage(" | ".join(raw.errors))
-        elif raw.sidecar_path:
-            self.statusBar().showMessage(f"{image.name} – sidecar: {raw.sidecar_path.name}")
+        self.metadata_panel.show_image(image)
+        metadata = self.metadata_panel.current
+        if metadata.errors:
+            self.statusBar().showMessage(" | ".join(metadata.errors))
+        elif metadata.sidecar_path:
+            self.statusBar().showMessage(f"{image.name} – sidecar: {metadata.sidecar_path.name}")
         else:
             self.statusBar().showMessage(f"{image.name} – no sidecar")
 

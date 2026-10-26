@@ -24,9 +24,10 @@ def test_selecting_image_fills_metadata_table(qapp, jpeg_file):
 
     window.thumbnails.setCurrentIndex(window.thumbnails.thumbnail_model.index(0))
 
-    table = window.metadata_table.table_model
-    assert table.columnCount() == 5
+    table = window.metadata_panel.model
+    assert table.columnCount() == 4  # field names are the row headers
     assert table.rowCount() == len(window._mappings)
+    assert table.headerData(0, Qt.Orientation.Vertical, Qt.ItemDataRole.DisplayRole) == "Title"
 
 
 def test_thumbnail_model_reports_sync_status(qapp, jpeg_file):
@@ -46,7 +47,7 @@ def test_thumbnail_model_reports_sync_status(qapp, jpeg_file):
 
 def test_master_column_is_marked(qapp):
     window = MainWindow(Config(master_source=Source.IPTC))
-    header = window.metadata_table.table_model.headerData(4, Qt.Orientation.Horizontal, 0)
+    header = window.metadata_panel.model.headerData(3, Qt.Orientation.Horizontal, 0)
     assert header == "IPTC ★ master"
 
 

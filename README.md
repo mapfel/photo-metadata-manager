@@ -70,6 +70,16 @@ path in the status bar:
 
 ## Synchronizing metadata
 
+The metadata table below the thumbnails works the same way as the dialog described next,
+for all fields of the clicked image: click the truth, tick the targets, press **Apply**
+(bottom right). Rows where the sources disagree are highlighted. Switching to another
+image discards choices that were not applied.
+
+Text fields with several values (e.g. keywords) are written as XMP arrays and repeated
+IPTC datasets, and joined with `; ` where a tag holds a single string. Non-ASCII IPTC text
+sets the UTF-8 character set marker. Writing an XMP language alternative (title,
+description, rights) keeps only the default language.
+
 Double-click a thumbnail to open the synchronize dialog. To synchronize several images,
 select them (Ctrl+click, Shift+click, Ctrl+A) and press **Synchronize metadata…** in the
 toolbar (Ctrl+Shift+S). Cells then summarize all images: a value shared by all, `(empty)`,
