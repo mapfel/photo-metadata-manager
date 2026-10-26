@@ -115,6 +115,11 @@ class ThumbnailModel(QAbstractListModel):
         self._requested.clear()
         self.endResetModel()
 
+    def refresh(self, path: Path) -> None:
+        """Reload thumbnail and sync status of `path`; the old thumbnail stays until then."""
+        if path in self._paths:
+            self._start_loader(self._paths.index(path))
+
     def rowCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._paths)
 
@@ -142,12 +147,15 @@ class ThumbnailModel(QAbstractListModel):
         if row in self._thumbnails:
             return self._thumbnails[row]
         if row not in self._requested:
-            self._requested.add(row)
-            loader = _ThumbnailLoader(
-                self._signals, self._checker, self._generation, row, self._paths[row]
-            )
-            self._pool.start(loader)
+            self._start_loader(row)
         return _empty_canvas()
+
+    def _start_loader(self, row: int) -> None:
+        self._requested.add(row)
+        loader = _ThumbnailLoader(
+            self._signals, self._checker, self._generation, row, self._paths[row]
+        )
+        self._pool.start(loader)
 
     def _on_loaded(self, generation: int, row: int, image: QImage, report: SyncReport) -> None:
         if generation != self._generation:
@@ -218,6 +226,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
 
 class ThumbnailView(QListView):
     image_selected = Signal(Path)
+    image_activated = Signal(Path)  # double click
 
     def __init__(self, checker: SyncChecker, parent=None) -> None:
         super().__init__(parent)
@@ -232,6 +241,7 @@ class ThumbnailView(QListView):
         self.setUniformItemSizes(True)
         self.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.selectionModel().currentChanged.connect(self._on_current_changed)
+        self.doubleClicked.connect(lambda index: self.image_activated.emit(index.data(PATH_ROLE)))
 
     def set_folder(self, folder: Path) -> None:
         self.thumbnail_model.set_folder(folder)

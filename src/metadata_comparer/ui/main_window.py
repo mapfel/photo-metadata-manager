@@ -10,7 +10,8 @@ from metadata_comparer.metadata.reader import read_metadata
 from metadata_comparer.metadata.sync import SyncReport, check_sync
 from metadata_comparer.ui.folder_tree import FolderTree
 from metadata_comparer.ui.metadata_table import MetadataTable
-from metadata_comparer.ui.thumbnail_view import ThumbnailView
+from metadata_comparer.ui.sync_dialog import SyncDialog
+from metadata_comparer.ui.thumbnail_view import PATH_ROLE, ThumbnailView
 
 
 class MainWindow(QMainWindow):
@@ -37,6 +38,7 @@ class MainWindow(QMainWindow):
 
         self.folder_tree.folder_selected.connect(self._show_folder)
         self.thumbnails.image_selected.connect(self._show_metadata)
+        self.thumbnails.image_activated.connect(self._open_sync_dialog)
 
         self.folder_tree.select_folder(_start_folder())
 
@@ -54,6 +56,19 @@ class MainWindow(QMainWindow):
             self._config.master_source,
             self._config.compared_fields,
         )
+
+    def _open_sync_dialog(self, image: Path) -> None:
+        by_name = {mapping.name: mapping for mapping in self._mappings}
+        sync_mappings = [by_name[name] for name in self._config.sync_fields]
+        dialog = SyncDialog(image, sync_mappings, self)
+        dialog.metadata_written.connect(self._on_metadata_written)
+        dialog.exec()
+
+    def _on_metadata_written(self, image: Path) -> None:
+        self.thumbnails.thumbnail_model.refresh(image)
+        current = self.thumbnails.currentIndex()
+        if current.isValid() and current.data(PATH_ROLE) == image:
+            self._show_metadata(image)
 
     def _show_metadata(self, image: Path) -> None:
         raw = read_metadata(image)

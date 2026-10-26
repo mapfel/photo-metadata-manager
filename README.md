@@ -65,6 +65,21 @@ path in the status bar:
 
   Sources that cannot store a field (e.g. color labels in Exif/IPTC) and a sidecar that does
   not exist are not checked. A rating of `0` counts as "unrated", i.e. empty.
+- `sync_fields`: fields shown in the synchronize dialog (default: Rating, Color Label,
+  Date Taken).
+
+## Synchronizing metadata
+
+Double-click a thumbnail to open the synchronize dialog. Click the cell that holds the
+truth (green frame), tick the checkboxes of the cells that should receive its value and
+press **Apply**. Choosing an empty cell as the truth removes the value from the targets.
+
+- Only the metadata is rewritten; the image data stays untouched. Files are replaced
+  atomically, but **keep backups of important photos** while this tool is young.
+- The first tag of a family in `mapping.yaml` is written (e.g. `Xmp.photoshop.DateCreated`).
+- A missing sidecar is created as `<name>.xmp`.
+- Writing an Exif rating also sets the Windows `RatingPercent` tag.
+- Dates are compared and written without time zone and fractional seconds.
 
 ## Development
 
