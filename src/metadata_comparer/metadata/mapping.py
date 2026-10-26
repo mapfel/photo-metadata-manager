@@ -4,12 +4,15 @@ from pathlib import Path
 
 import yaml
 
+from metadata_comparer.metadata.values import FieldKind
+
 
 @dataclass(frozen=True)
 class FieldMapping:
     name: str
     tags: dict[str, tuple[str, ...]]  # family ("exif", "xmp", "iptc") -> exiv2 keys by priority
     empty_values: frozenset[str] = frozenset()  # values that mean "not set", e.g. rating 0
+    kind: FieldKind = FieldKind.TEXT
 
 
 def load_mappings(path: Path | None = None) -> list[FieldMapping]:
@@ -24,8 +27,14 @@ def load_mappings(path: Path | None = None) -> list[FieldMapping]:
 def parse_mappings(document: dict) -> list[FieldMapping]:
     mappings = []
     for entry in document.get("fields", []):
-        options = {"name", "empty_values"}
+        options = {"name", "empty_values", "kind"}
         tags = {family: tuple(keys) for family, keys in entry.items() if family not in options}
-        empty_values = frozenset(str(value) for value in entry.get("empty_values", []))
-        mappings.append(FieldMapping(name=entry["name"], tags=tags, empty_values=empty_values))
+        mappings.append(
+            FieldMapping(
+                name=entry["name"],
+                tags=tags,
+                empty_values=frozenset(str(value) for value in entry.get("empty_values", [])),
+                kind=FieldKind(entry.get("kind", FieldKind.TEXT)),
+            )
+        )
     return mappings

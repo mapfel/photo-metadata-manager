@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from metadata_comparer.metadata.mapping import FieldMapping
 from metadata_comparer.metadata.sources import RawMetadata, Source
+from metadata_comparer.metadata.values import normalize
 
 
 @dataclass(frozen=True)
@@ -37,11 +38,8 @@ def compare(raw: RawMetadata, mappings: list[FieldMapping]) -> list[ComparisonRo
 def _lookup(raw: RawMetadata, mapping: FieldMapping, source: Source) -> CellValue | None:
     source_tags = raw.tags.get(source, {})
     for tag in mapping.tags.get(source.family, ()):
-        values = [
-            value
-            for value in source_tags.get(tag, [])
-            if value and value not in mapping.empty_values
-        ]
+        normalized = normalize(mapping.kind, tag, source_tags.get(tag, []), source_tags)
+        values = [value for value in normalized if value and value not in mapping.empty_values]
         if values:
             return CellValue(values=tuple(values), tag=tag)
     return None

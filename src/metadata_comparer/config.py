@@ -19,6 +19,8 @@ class Config:
     master_source: Source = Source.XMP_EMBEDDED
     # Fields whose disagreement with the master is shown as a frame around the thumbnail.
     compared_fields: tuple[str, ...] = ("Rating", "Color Label")
+    # Fields offered in the synchronize dialog.
+    sync_fields: tuple[str, ...] = ("Rating", "Color Label", "Date Taken")
 
 
 def load_config(path: Path, known_fields: Collection[str]) -> Config:
@@ -38,13 +40,23 @@ def load_config(path: Path, known_fields: Collection[str]) -> Config:
         raise ConfigError(
             f"{path}: unknown master_source {source_id!r}, expected one of {', '.join(SOURCE_IDS)}"
         )
-    fields = document.get("compared_fields", list(defaults.compared_fields))
+    return Config(
+        master_source=SOURCE_IDS[source_id],
+        compared_fields=_field_list(document, "compared_fields", path, known_fields),
+        sync_fields=_field_list(document, "sync_fields", path, known_fields),
+    )
+
+
+def _field_list(
+    document: dict, key: str, path: Path, known_fields: Collection[str]
+) -> tuple[str, ...]:
+    fields = document.get(key, list(getattr(Config(), key)))
     if not isinstance(fields, list) or not all(isinstance(name, str) for name in fields):
-        raise ConfigError(f"{path}: compared_fields must be a list of field names")
+        raise ConfigError(f"{path}: {key} must be a list of field names")
     unknown = [name for name in fields if name not in known_fields]
     if unknown:
-        raise ConfigError(f"{path}: unknown compared_fields {unknown}")
-    return Config(master_source=SOURCE_IDS[source_id], compared_fields=tuple(fields))
+        raise ConfigError(f"{path}: unknown {key} {unknown}")
+    return tuple(fields)
 
 
 def write_default_config(path: Path) -> None:
@@ -52,6 +64,7 @@ def write_default_config(path: Path) -> None:
     document = {
         "master_source": _source_id(defaults.master_source),
         "compared_fields": list(defaults.compared_fields),
+        "sync_fields": list(defaults.sync_fields),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")

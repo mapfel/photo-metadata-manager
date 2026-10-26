@@ -5,7 +5,7 @@ import pytest
 from metadata_comparer.config import Config, ConfigError, load_config, write_default_config
 from metadata_comparer.metadata.sources import Source
 
-FIELDS = {"Rating", "Color Label", "Author"}
+FIELDS = {"Rating", "Color Label", "Date Taken", "Author"}
 
 
 def write(path, document):
@@ -27,8 +27,9 @@ def test_default_file_round_trips(tmp_path):
 
 
 def test_reads_master_and_fields(tmp_path):
-    path = write(tmp_path / "c.json", {"master_source": "iptc", "compared_fields": ["Author"]})
-    assert load_config(path, FIELDS) == Config(Source.IPTC, ("Author",))
+    document = {"master_source": "iptc", "compared_fields": ["Author"], "sync_fields": ["Rating"]}
+    path = write(tmp_path / "c.json", document)
+    assert load_config(path, FIELDS) == Config(Source.IPTC, ("Author",), ("Rating",))
 
 
 def test_missing_keys_fall_back_to_defaults(tmp_path):
@@ -44,6 +45,7 @@ def test_missing_keys_fall_back_to_defaults(tmp_path):
         {"master_source": "exiff"},
         {"compared_fields": ["Stars"]},
         {"compared_fields": "Rating"},
+        {"sync_fields": ["Stars"]},
         ["not", "an", "object"],
     ],
 )

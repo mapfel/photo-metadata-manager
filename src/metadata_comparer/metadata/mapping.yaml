@@ -2,6 +2,8 @@
 # Tags are tried in order; the first one with a value wins.
 # The "xmp" family is used for both embedded XMP and the sidecar file.
 # Optional "empty_values" lists values that count as "not set".
+# Optional "kind" (text, rating, datetime) controls how values are normalized and written.
+# When writing, the first tag of a family is set.
 # Tag reference: https://exiv2.org/metadata.html
 
 fields:
@@ -31,6 +33,7 @@ fields:
     iptc: [Iptc.Application2.Keywords]
 
   - name: Rating
+    kind: rating
     exif: [Exif.Image.Rating]
     xmp: [Xmp.xmp.Rating]
     empty_values: ["0"]  # 0 means "unrated"
@@ -39,6 +42,7 @@ fields:
     xmp: [Xmp.xmp.Label]
 
   - name: Date Taken
-    exif: [Exif.Photo.DateTimeOriginal, Exif.Image.DateTime]
+    kind: datetime
+    exif: [Exif.Photo.DateTimeOriginal]
     xmp: [Xmp.photoshop.DateCreated, Xmp.exif.DateTimeOriginal, Xmp.xmp.CreateDate]
-    iptc: [Iptc.Application2.DateCreated]
+    iptc: [Iptc.Application2.DateCreated]  # combined with Iptc.Application2.TimeCreated
