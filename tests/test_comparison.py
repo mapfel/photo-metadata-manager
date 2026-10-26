@@ -33,9 +33,9 @@ def test_values_are_looked_up_per_source():
     )
     author = compare(raw, MAPPINGS)[0]
 
-    assert author.cells[Source.EXIF] == CellValue("Ann", "Exif.Image.XPAuthor")
-    assert author.cells[Source.XMP_SIDECAR] == CellValue("Bob", "Xmp.dc.creator")
-    assert author.cells[Source.IPTC] == CellValue("Ann; Bob", "Iptc.Application2.Byline")
+    assert author.cells[Source.EXIF] == CellValue(("Ann",), "Exif.Image.XPAuthor")
+    assert author.cells[Source.XMP_SIDECAR] == CellValue(("Bob",), "Xmp.dc.creator")
+    assert author.cells[Source.IPTC].text == "Ann; Bob"
     assert author.has_conflict
 
 
@@ -53,3 +53,13 @@ def test_missing_values_are_none_and_not_a_conflict():
     assert rating.cells[Source.IPTC] is None
     assert rating.cells[Source.XMP_EMBEDDED] is None
     assert not rating.has_conflict
+
+
+def test_value_order_is_not_a_conflict():
+    raw = RawMetadata(
+        tags={
+            Source.XMP_EMBEDDED: {"Xmp.dc.creator": ["Ann", "Bob"]},
+            Source.IPTC: {"Iptc.Application2.Byline": ["Bob", "Ann"]},
+        }
+    )
+    assert not compare(raw, MAPPINGS)[0].has_conflict

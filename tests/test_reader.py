@@ -36,8 +36,16 @@ def test_reads_all_sources(jpeg_file):
 
     image = exiv2.ImageFactory.open(str(jpeg_file))
     image.readMetadata()
-    image.exifData()["Exif.Image.Artist"] = "Ann"
-    image.xmpData()["Xmp.dc.description"] = "lang=x-default Beach"
+    exif = image.exifData()
+    exif["Exif.Image.Artist"] = "Ann"
+    exif["Exif.Photo.UserComment"] = "charset=Unicode Grüße"
+    xp_author = exiv2.Value.create(exiv2.TypeId.unsignedByte)
+    xp_author.read(" ".join(str(b) for b in "Jürgen".encode("utf-16-le") + bytes(2)))
+    exif["Exif.Image.XPAuthor"] = xp_author
+    xmp = image.xmpData()
+    xmp["Xmp.dc.description"] = "lang=x-default Beach"
+    xmp["Xmp.dc.subject"] = "sea"
+    xmp["Xmp.dc.subject"] = "sand"
     iptc = image.iptcData()
     for keyword in ("sea", "sand"):
         iptc.add(exiv2.IptcKey("Iptc.Application2.Keywords"), exiv2.StringValue(keyword))
@@ -56,6 +64,9 @@ def test_reads_all_sources(jpeg_file):
 
     assert raw.errors == []
     assert raw.tags[Source.EXIF]["Exif.Image.Artist"] == ["Ann"]
+    assert raw.tags[Source.EXIF]["Exif.Image.XPAuthor"] == ["Jürgen"]
+    assert raw.tags[Source.EXIF]["Exif.Photo.UserComment"] == ["Grüße"]
+    assert raw.tags[Source.XMP_EMBEDDED]["Xmp.dc.subject"] == ["sea", "sand"]
     assert raw.tags[Source.XMP_EMBEDDED]["Xmp.dc.description"] == ["Beach"]
     assert raw.tags[Source.IPTC]["Iptc.Application2.Keywords"] == ["sea", "sand"]
     assert raw.tags[Source.XMP_SIDECAR]["Xmp.xmp.Rating"] == ["4"]

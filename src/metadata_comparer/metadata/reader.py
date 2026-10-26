@@ -18,6 +18,8 @@ else:
 
 
 _LANG_ALT_ENTRY = re.compile(r'lang="([^"]*)" ')
+_COMMENT_CHARSET = re.compile(r'^charset=("[^"]*"|\S+)\s?')
+_XMP_ARRAY_TYPES = {"XmpBag", "XmpSeq", "XmpAlt"}
 
 
 def find_sidecar(image_path: Path) -> Path | None:
@@ -80,29 +82,42 @@ def _open(data: bytes):
 
 
 def _collect_exif(exif_data) -> dict[str, list[str]]:
-    # print() interprets values, e.g. decodes the UCS-2 Windows XP* tags.
-    return _collect(exif_data, lambda datum: datum.print(exif_data))
+    def to_values(datum) -> list[str]:
+        # print() interprets values, e.g. decodes the UCS-2 Windows XP* tags.
+        text = datum.print(exif_data)
+        if datum.key() == "Exif.Photo.UserComment":
+            return [_COMMENT_CHARSET.sub("", text)]
+        if datum.key() == "Exif.Image.XPKeywords":
+            return text.split(";")
+        return [text]
+
+    return _collect(exif_data, to_values)
 
 
 def _collect_xmp(xmp_data) -> dict[str, list[str]]:
-    def to_text(datum) -> str:
-        text = datum.toString()
-        return parse_lang_alt(text) if datum.typeName() == "LangAlt" else text
+    def to_values(datum) -> list[str]:
+        type_name = datum.typeName()
+        if type_name == "LangAlt":
+            return [parse_lang_alt(datum.toString())]
+        if type_name in _XMP_ARRAY_TYPES:
+            return [datum.toString(i) for i in range(datum.count())]
+        return [datum.toString()]
 
-    return _collect(xmp_data, to_text)
+    return _collect(xmp_data, to_values)
 
 
 def _collect_iptc(iptc_data) -> dict[str, list[str]]:
     # Repeatable datasets like Keywords appear as several datums with the same key.
-    return _collect(iptc_data, lambda datum: datum.toString())
+    return _collect(iptc_data, lambda datum: [datum.toString()])
 
 
-def _collect(container, to_text) -> dict[str, list[str]]:
+def _collect(container, to_values) -> dict[str, list[str]]:
     tags: dict[str, list[str]] = {}
     for datum in container:
         try:
-            text = to_text(datum)
+            values = to_values(datum)
         except UnicodeDecodeError:
-            text = "<undecodable>"
-        tags.setdefault(datum.key(), []).append(text.strip().rstrip("\x00"))
+            values = ["<undecodable>"]
+        cleaned = (value.strip().rstrip("\x00") for value in values)
+        tags.setdefault(datum.key(), []).extend(value for value in cleaned if value)
     return tags

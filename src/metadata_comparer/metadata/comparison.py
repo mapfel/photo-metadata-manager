@@ -6,8 +6,12 @@ from metadata_comparer.metadata.sources import RawMetadata, Source
 
 @dataclass(frozen=True)
 class CellValue:
-    text: str
-    tag: str  # exiv2 key the value came from
+    values: tuple[str, ...]
+    tag: str  # exiv2 key the values came from
+
+    @property
+    def text(self) -> str:
+        return "; ".join(self.values)
 
 
 @dataclass(frozen=True)
@@ -17,9 +21,9 @@ class ComparisonRow:
 
     @property
     def has_conflict(self) -> bool:
-        """True if at least two sources hold different values."""
-        texts = {cell.text for cell in self.cells.values() if cell is not None}
-        return len(texts) > 1
+        """True if at least two sources hold different values. Order does not matter."""
+        value_sets = {frozenset(cell.values) for cell in self.cells.values() if cell is not None}
+        return len(value_sets) > 1
 
 
 def compare(raw: RawMetadata, mappings: list[FieldMapping]) -> list[ComparisonRow]:
@@ -35,5 +39,5 @@ def _lookup(raw: RawMetadata, mapping: FieldMapping, source: Source) -> CellValu
     for tag in mapping.tags.get(source.family, ()):
         values = [value for value in source_tags.get(tag, []) if value]
         if values:
-            return CellValue(text="; ".join(values), tag=tag)
+            return CellValue(values=tuple(values), tag=tag)
     return None
