@@ -66,6 +66,31 @@ def to_tag_values(kind: FieldKind, tag: str, value: str) -> dict[str, str]:
     return {tag: value}
 
 
+def parse_input(kind: FieldKind, text: str) -> tuple[str, ...]:
+    """Turn typed text into canonical values. Text fields take several values separated
+    by ";". Raises ValueError with a message for the user."""
+    if kind == FieldKind.TEXT:
+        return tuple(part.strip() for part in text.split(";") if part.strip())
+    text = text.strip()
+    if not text:
+        return ()
+    if kind == FieldKind.RATING:
+        if re.fullmatch(r"-?\d", text) and -1 <= int(text) <= 5:
+            return (str(int(text)),)
+        raise ValueError("Rating must be a whole number from -1 to 5")
+    if not _DATETIME.fullmatch(text):
+        raise ValueError("Expected YYYY-MM-DD, optionally followed by HH:MM or HH:MM:SS")
+    return (_normalize_datetime(text),)
+
+
+def input_hint(kind: FieldKind) -> str:
+    return {
+        FieldKind.TEXT: "Type a value; separate several values with ';'",
+        FieldKind.RATING: "Type a rating from -1 (rejected) to 5; 0 means unrated",
+        FieldKind.DATETIME: "Type a date as YYYY-MM-DD HH:MM:SS",
+    }[kind]
+
+
 def _normalize_rating(value: str) -> str:
     try:
         return str(int(float(value)))

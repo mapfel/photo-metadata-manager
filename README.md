@@ -75,6 +75,13 @@ for all fields of the clicked image: click the truth, tick the targets, press **
 (bottom right). Rows where the sources disagree are highlighted. Switching to another
 image discards choices that were not applied.
 
+Both tables have a **Custom** column for typing the truth yourself. Click a Custom cell to
+make it the truth and type into it (clicking it again edits the value; click another cell
+to move the truth away). It is never a target. Several text values are separated by `;`,
+ratings are `-1`–`5` (`0` = unrated, i.e. removes the rating), dates are
+`YYYY-MM-DD[ HH:MM[:SS]]`. Invalid input turns red and blocks **Apply**. In the batch
+dialog the typed value goes to every selected image.
+
 Text fields with several values (e.g. keywords) are written as XMP arrays and repeated
 IPTC datasets, and joined with `; ` where a tag holds a single string. Non-ASCII IPTC text
 sets the UTF-8 character set marker. Writing an XMP language alternative (title,

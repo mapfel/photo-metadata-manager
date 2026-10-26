@@ -1,6 +1,6 @@
 import pytest
 
-from metadata_comparer.metadata.values import FieldKind, normalize, to_tag_values
+from metadata_comparer.metadata.values import FieldKind, normalize, parse_input, to_tag_values
 
 
 @pytest.mark.parametrize(
@@ -83,3 +83,35 @@ def test_exif_cannot_store_rejected_rating():
 def test_invalid_datetime_cannot_be_written():
     with pytest.raises(ValueError):
         to_tag_values(FieldKind.DATETIME, "Xmp.photoshop.DateCreated", "yesterday")
+
+
+@pytest.mark.parametrize(
+    ("kind", "text", "expected"),
+    [
+        (FieldKind.TEXT, " sea ;sand; ", ("sea", "sand")),
+        (FieldKind.TEXT, "", ()),
+        (FieldKind.RATING, " 4 ", ("4",)),
+        (FieldKind.RATING, "-1", ("-1",)),
+        (FieldKind.RATING, "", ()),
+        (FieldKind.DATETIME, "2024-01-02 03:04", ("2024-01-02 03:04:00",)),
+        (FieldKind.DATETIME, "2024:01:02 03:04:05", ("2024-01-02 03:04:05",)),
+        (FieldKind.DATETIME, "2024-01-02", ("2024-01-02",)),
+    ],
+)
+def test_parse_input(kind, text, expected):
+    assert parse_input(kind, text) == expected
+
+
+@pytest.mark.parametrize(
+    ("kind", "text"),
+    [
+        (FieldKind.RATING, "6"),
+        (FieldKind.RATING, "3.5"),
+        (FieldKind.RATING, "--3"),
+        (FieldKind.DATETIME, "yesterday"),
+        (FieldKind.DATETIME, "2024-01-02 03:04 extra"),
+    ],
+)
+def test_parse_input_rejects_invalid_text(kind, text):
+    with pytest.raises(ValueError):
+        parse_input(kind, text)

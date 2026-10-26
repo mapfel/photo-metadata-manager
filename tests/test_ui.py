@@ -25,7 +25,7 @@ def test_selecting_image_fills_metadata_table(qapp, jpeg_file):
     window.thumbnails.setCurrentIndex(window.thumbnails.thumbnail_model.index(0))
 
     table = window.metadata_panel.model
-    assert table.columnCount() == 4  # field names are the row headers
+    assert table.columnCount() == 5  # 4 sources + Custom; field names are row headers
     assert table.rowCount() == len(window._mappings)
     assert table.headerData(0, Qt.Orientation.Vertical, Qt.ItemDataRole.DisplayRole) == "Title"
 

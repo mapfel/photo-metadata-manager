@@ -88,4 +88,9 @@ class SyncDialog(QDialog):
         self.status.setToolTip("\n".join(errors))
 
     def _update_apply_button(self) -> None:
-        self.apply_button.setEnabled(bool(self.model.changes()))
+        invalid = self.model.has_invalid_input()
+        self.apply_button.setEnabled(bool(self.model.changes()) and not invalid)
+        if invalid:
+            self.status.setText("Fix the red custom value before applying.")
+        elif self.status.text().startswith("Fix the red"):
+            self.status.setText("")

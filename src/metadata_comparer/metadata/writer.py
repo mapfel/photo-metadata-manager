@@ -33,10 +33,14 @@ class Change:
 
 @dataclass
 class RowSelection:
-    """In one row of the sync dialog: the source holding the truth and the sources to update."""
+    """In one row of the sync table: where the truth comes from and the sources to update.
 
-    truth: Source
+    `truth` None means the user typed the truth; it is then `custom` (canonical values).
+    """
+
+    truth: Source | None
     targets: set[Source] = field(default_factory=set)
+    custom: tuple[str, ...] = ()
 
 
 def plan_changes(
@@ -51,8 +55,11 @@ def plan_changes(
         selection = selections.get(row.field)
         if selection is None:
             continue
-        truth_cell = row.cells[selection.truth]
-        truth = truth_cell.values if truth_cell else ()
+        if selection.truth is None:
+            truth = selection.custom
+        else:
+            truth_cell = row.cells[selection.truth]
+            truth = truth_cell.values if truth_cell else ()
         for target in sorted(selection.targets, key=list(Source).index):
             target_cell = row.cells[target]
             current = target_cell.values if target_cell else ()
