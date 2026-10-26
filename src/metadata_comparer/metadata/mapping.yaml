@@ -1,6 +1,7 @@
 # Maps a user-facing field to the exiv2 tag keys that hold it in each metadata family.
 # Tags are tried in order; the first one with a value wins.
 # The "xmp" family is used for both embedded XMP and the sidecar file.
+# Optional "empty_values" lists values that count as "not set".
 # Tag reference: https://exiv2.org/metadata.html
 
 fields:
@@ -32,6 +33,10 @@ fields:
   - name: Rating
     exif: [Exif.Image.Rating]
     xmp: [Xmp.xmp.Rating]
+    empty_values: ["0"]  # 0 means "unrated"
+
+  - name: Color Label
+    xmp: [Xmp.xmp.Label]
 
   - name: Date Taken
     exif: [Exif.Photo.DateTimeOriginal, Exif.Image.DateTime]

@@ -15,6 +15,8 @@ except ImportError as error:
 else:
     _exiv2_import_error = None
     exiv2.LogMsg.setLevel(exiv2.LogMsg.Level.error)
+    # Must happen once before metadata is read from several threads (thumbnail loaders).
+    exiv2.XmpParser.initialize()
 
 
 _LANG_ALT_ENTRY = re.compile(r'lang="([^"]*)" ')
