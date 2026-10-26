@@ -29,8 +29,9 @@ def check_sync(
     mappings: list[FieldMapping],
     master: Source,
     fields: Collection[str],
+    sources: Collection[Source] = tuple(Source),
 ) -> SyncReport:
-    """Compare `fields` of every other source against `master`.
+    """Compare `fields` of the other `sources` against `master`.
 
     Sources that cannot hold a field (no tags mapped for their family) are skipped,
     as is the sidecar when the image has none. Fields the master cannot hold are skipped.
@@ -45,7 +46,7 @@ def check_sync(
         if not mapping.tags.get(master.family):
             continue
         master_cell = row.cells[master]
-        for source in _compared_sources(raw, mapping, master):
+        for source in _compared_sources(raw, mapping, master, sources):
             cell = row.cells[source]
             if cell is None and master_cell is not None:
                 status = max(status, SyncStatus.MISSING)
@@ -62,11 +63,14 @@ def check_sync(
     return SyncReport(status, tuple(issues))
 
 
-def _compared_sources(raw: RawMetadata, mapping: FieldMapping, master: Source) -> list[Source]:
+def _compared_sources(
+    raw: RawMetadata, mapping: FieldMapping, master: Source, sources: Collection[Source]
+) -> list[Source]:
     return [
         source
         for source in Source
         if source != master
+        and source in sources
         and mapping.tags.get(source.family)
         and not (source == Source.XMP_SIDECAR and raw.sidecar_path is None)
     ]

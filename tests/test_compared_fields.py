@@ -89,3 +89,64 @@ def test_toggle_rechecks_thumbnails_and_keeps_table_choices(qapp, jpeg_file):
 
     assert wait_for(lambda: model.data(index, SYNC_ROLE).status == SyncStatus.OK, qapp)
     assert panel.selections  # not discarded
+
+
+def source_header(window, column, role):
+    return window.metadata_panel.model.headerData(column, Qt.Orientation.Horizontal, role)
+
+
+def test_compared_sources_are_bold_and_toggle_on_click(qapp, jpeg_file, tmp_path):
+    from metadata_comparer.metadata.sources import Source
+
+    config_path = tmp_path / "config.json"
+    config = Config(compared_sources=(Source.EXIF, Source.XMP_EMBEDDED))
+    window = MainWindow(config, config_path=config_path)
+    window.resize(1000, 800)
+    window.show()
+    window._show_folder(jpeg_file.parent)
+    window.thumbnails.setCurrentIndex(window.thumbnails.thumbnail_model.index(0))
+    bold = Qt.ItemDataRole.FontRole
+
+    assert source_header(window, 0, bold).bold()  # Exif
+    assert source_header(window, 1, bold).bold()  # master
+    assert source_header(window, 2, bold) is None  # sidecar
+    assert source_header(window, 4, bold) is None  # Custom is never compared
+
+    horizontal = window.metadata_panel.table.horizontalHeader()
+    sidecar_x = horizontal.sectionViewportPosition(2) + horizontal.sectionSize(2) // 2
+    QTest.mouseClick(horizontal.viewport(), Qt.MouseButton.LeftButton, pos=QPoint(sidecar_x, 5))
+    assert window._config.compared_sources == (
+        Source.EXIF,
+        Source.XMP_EMBEDDED,
+        Source.XMP_SIDECAR,
+    )
+    assert source_header(window, 2, bold).bold()
+    assert load_config(config_path, FIELDS).compared_sources == window._config.compared_sources
+
+    window.toggle_compared_source(Source.EXIF)
+    assert Source.EXIF not in window._config.compared_sources
+    window.toggle_compared_source(Source.XMP_EMBEDDED)  # the master cannot be excluded
+    assert Source.XMP_EMBEDDED in window._config.compared_sources
+    assert "always compared" in window.statusBar().currentMessage()
+
+
+def test_excluding_a_source_rechecks_thumbnails(qapp, jpeg_file):
+    exiv2 = pytest.importorskip("exiv2", exc_type=ImportError)
+    from metadata_comparer.metadata.sources import Source
+
+    image = exiv2.ImageFactory.open(str(jpeg_file))
+    image.readMetadata()
+    image.exifData()["Exif.Image.Rating"] = "2"
+    image.xmpData()["Xmp.xmp.Rating"] = "4"
+    image.writeMetadata()
+
+    window = MainWindow()
+    window._show_folder(jpeg_file.parent)
+    model = window.thumbnails.thumbnail_model
+    index = model.index(0)
+    model.data(index, Qt.ItemDataRole.DecorationRole)
+    assert wait_for(lambda: model.data(index, SYNC_ROLE) is not None, qapp)
+    assert model.data(index, SYNC_ROLE).status == SyncStatus.CONFLICT
+
+    window.toggle_compared_source(Source.EXIF)
+    assert wait_for(lambda: model.data(index, SYNC_ROLE).status == SyncStatus.OK, qapp)

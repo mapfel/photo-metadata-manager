@@ -21,6 +21,8 @@ class Config:
     compared_fields: tuple[str, ...] = ("Rating", "Color Label")
     # Fields offered in the synchronize dialog.
     sync_fields: tuple[str, ...] = ("Rating", "Color Label", "Date Taken")
+    # Sources checked against the master for the thumbnail frames.
+    compared_sources: tuple[Source, ...] = tuple(Source)
 
 
 def load_config(path: Path, known_fields: Collection[str]) -> Config:
@@ -44,7 +46,21 @@ def load_config(path: Path, known_fields: Collection[str]) -> Config:
         master_source=SOURCE_IDS[source_id],
         compared_fields=_field_list(document, "compared_fields", path, known_fields),
         sync_fields=_field_list(document, "sync_fields", path, known_fields),
+        compared_sources=_source_list(document, "compared_sources", path),
     )
+
+
+def _source_list(document: dict, key: str, path: Path) -> tuple[Source, ...]:
+    ids = document.get(key, [_source_id(source) for source in getattr(Config(), key)])
+    if not isinstance(ids, list) or not all(isinstance(source_id, str) for source_id in ids):
+        raise ConfigError(f"{path}: {key} must be a list of source names")
+    unknown = [source_id for source_id in ids if source_id not in SOURCE_IDS]
+    if unknown:
+        raise ConfigError(
+            f"{path}: unknown {key} {unknown}, expected some of {', '.join(SOURCE_IDS)}"
+        )
+    # Kept in the fixed source order, without duplicates.
+    return tuple(source for source in Source if _source_id(source) in ids)
 
 
 def _field_list(
@@ -75,6 +91,7 @@ def save_config(path: Path, config: Config) -> None:
         "master_source": _source_id(config.master_source),
         "compared_fields": list(config.compared_fields),
         "sync_fields": list(config.sync_fields),
+        "compared_sources": [_source_id(source) for source in config.compared_sources],
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")

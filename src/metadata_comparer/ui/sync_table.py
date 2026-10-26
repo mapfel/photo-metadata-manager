@@ -100,6 +100,8 @@ class SyncTableModel(QAbstractTableModel):
         self.custom_texts: dict[str, str] = {}  # typed per field; kept when the truth moves
         # Fields checked for the thumbnail frames, shown in bold; None hides the marking.
         self.compared_fields: frozenset[str] | None = None
+        # Sources checked against the master, shown in bold; None hides the marking.
+        self.compared_sources: frozenset[Source] | None = None
 
     @property
     def images(self) -> list[ImageMetadata]:
@@ -124,13 +126,30 @@ class SyncTableModel(QAbstractTableModel):
         if self.rowCount():
             self.headerDataChanged.emit(Qt.Orientation.Vertical, 0, self.rowCount() - 1)
 
+    def set_compared_sources(self, sources: frozenset[Source]) -> None:
+        self.compared_sources = sources
+        self.headerDataChanged.emit(Qt.Orientation.Horizontal, 0, CUSTOM_COLUMN - 1)
+
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = 0):
+        if (
+            orientation == Qt.Orientation.Horizontal
+            and section < CUSTOM_COLUMN
+            and self.compared_sources is not None
+        ):
+            source = SOURCES[section]
+            compared = source == self._master or source in self.compared_sources
+            if role == Qt.ItemDataRole.FontRole and compared:
+                return _bold_font()
+            if role == Qt.ItemDataRole.ToolTipRole:
+                if source == self._master:
+                    return "The master: the other bold sources are compared with it."
+                if compared:
+                    return "Compared with the master for the thumbnail frames. Click to exclude."
+                return "Not compared with the master. Click to include."
         if orientation == Qt.Orientation.Vertical and self.compared_fields is not None:
             compared = self._mappings[section].name in self.compared_fields
             if role == Qt.ItemDataRole.FontRole and compared:
-                font = QFont()
-                font.setBold(True)
-                return font
+                return _bold_font()
             if role == Qt.ItemDataRole.ToolTipRole:
                 if compared:
                     return "Checked for the thumbnail frames (bold). Click to exclude."
@@ -324,6 +343,12 @@ class SyncTableModel(QAbstractTableModel):
     def _row_changed(self, row: int) -> None:
         self.dataChanged.emit(self.index(row, 0), self.index(row, CUSTOM_COLUMN))
         self.selection_changed.emit()
+
+
+def _bold_font() -> QFont:
+    font = QFont()
+    font.setBold(True)
+    return font
 
 
 def checkbox_rect(cell: QRect) -> QRect:

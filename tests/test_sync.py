@@ -113,3 +113,17 @@ def test_read_errors_give_unknown():
     report = check_sync(raw, MAPPINGS, Source.XMP_EMBEDDED, FIELDS)
     assert report.status == SyncStatus.UNKNOWN
     assert report.issues == ("photo.jpg: corrupt",)
+
+
+def test_excluded_sources_are_not_compared():
+    tags = {
+        Source.EXIF: {"Exif.Image.Rating": ["2"]},
+        Source.XMP_EMBEDDED: {"Xmp.xmp.Rating": ["3"], "Xmp.xmp.Label": ["Red"]},
+        Source.XMP_SIDECAR: {"Xmp.xmp.Rating": ["3"]},
+    }
+    raw = RawMetadata(tags=tags, sidecar_path=SIDECAR)
+    sources = (Source.XMP_EMBEDDED, Source.XMP_SIDECAR)
+
+    report = check_sync(raw, MAPPINGS, Source.XMP_EMBEDDED, FIELDS, sources)
+    assert report.status == SyncStatus.MISSING  # Exif conflict ignored, sidecar label missing
+    assert check_sync(raw, MAPPINGS, Source.XMP_EMBEDDED, FIELDS, ()).status == SyncStatus.OK

@@ -6,6 +6,8 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWi
 from metadata_comparer.metadata.mapping import FieldMapping
 from metadata_comparer.metadata.sources import Source
 from metadata_comparer.ui.sync_table import (
+    CUSTOM_COLUMN,
+    SOURCES,
     ImageMetadata,
     SyncTable,
     SyncTableModel,
@@ -19,12 +21,14 @@ class MetadataPanel(QWidget):
 
     metadata_written = Signal(Path)
     compared_field_toggled = Signal(str)  # a field name header was clicked
+    compared_source_toggled = Signal(Source)  # a source column header was clicked
 
     def __init__(
         self,
         mappings: list[FieldMapping],
         master: Source,
         compared_fields: frozenset[str] = frozenset(),
+        compared_sources: frozenset[Source] = frozenset(Source),
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -32,11 +36,14 @@ class MetadataPanel(QWidget):
         self._image: Path | None = None
         self.model = SyncTableModel(mappings, master, self)
         self.model.set_compared_fields(compared_fields)
+        self.model.set_compared_sources(compared_sources)
         self.table = SyncTable(self.model)
         self.table.verticalHeader().setSectionsClickable(True)
         self.table.verticalHeader().sectionClicked.connect(
             lambda row: self.compared_field_toggled.emit(mappings[row].name)
         )
+        self.table.horizontalHeader().setSectionsClickable(True)
+        self.table.horizontalHeader().sectionClicked.connect(self._on_source_header_clicked)
         self.status = QLabel()
         self.apply_button = QPushButton("Apply")
         self.apply_button.setToolTip("Copy the truth into the ticked cells")
@@ -71,6 +78,10 @@ class MetadataPanel(QWidget):
             values = sum(len(image_changes) for image_changes in changes.values())
             self.status.setText(f"{values} value(s) written.")
         show_failures(self, failures)
+
+    def _on_source_header_clicked(self, column: int) -> None:
+        if column < CUSTOM_COLUMN:
+            self.compared_source_toggled.emit(SOURCES[column])
 
     def _update_apply_button(self) -> None:
         invalid = self.model.has_invalid_input()

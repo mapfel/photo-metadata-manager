@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QMainWindow, QSplitter, QToolBar
 from metadata_comparer.config import Config, save_config
 from metadata_comparer.metadata.mapping import FieldMapping, load_mappings
 from metadata_comparer.metadata.reader import read_metadata
+from metadata_comparer.metadata.sources import Source
 from metadata_comparer.metadata.sync import SyncReport, check_sync
 from metadata_comparer.ui.folder_tree import FolderTree
 from metadata_comparer.ui.metadata_panel import MetadataPanel
@@ -38,7 +39,10 @@ class MainWindow(QMainWindow):
         self.folder_tree = FolderTree()
         self.thumbnails = ThumbnailView(self._check_sync)
         self.metadata_panel = MetadataPanel(
-            self._mappings, self._config.master_source, frozenset(self._config.compared_fields)
+            self._mappings,
+            self._config.master_source,
+            frozenset(self._config.compared_fields),
+            frozenset(self._config.compared_sources),
         )
 
         right = QSplitter(Qt.Orientation.Vertical)
@@ -77,6 +81,7 @@ class MainWindow(QMainWindow):
         self.thumbnails.selection_changed.connect(self._update_sync_action)
         self.metadata_panel.metadata_written.connect(self.thumbnails.thumbnail_model.refresh)
         self.metadata_panel.compared_field_toggled.connect(self.toggle_compared_field)
+        self.metadata_panel.compared_source_toggled.connect(self.toggle_compared_source)
 
         self.folder_tree.select_folder(self._start_folder())
 
@@ -101,12 +106,26 @@ class MainWindow(QMainWindow):
         else:
             mapping_order = [mapping.name for mapping in self._mappings]
             fields = tuple(sorted({*fields, field}, key=mapping_order.index))
-        # Loader threads read self._config; swapping the reference keeps that safe.
-        self._config = replace(self._config, compared_fields=fields)
+        self._update_config(replace(self._config, compared_fields=fields))
         self.metadata_panel.model.set_compared_fields(frozenset(fields))
+
+    def toggle_compared_source(self, source: Source) -> None:
+        """Include or exclude `source` from the comparison with the master."""
+        if source == self._config.master_source:
+            self.statusBar().showMessage(f"{source.label} is the master and is always compared.")
+            return
+        sources = set(self._config.compared_sources) ^ {source}
+        ordered = tuple(candidate for candidate in Source if candidate in sources)
+        self._update_config(replace(self._config, compared_sources=ordered))
+        self.metadata_panel.model.set_compared_sources(frozenset(ordered))
+
+    def _update_config(self, config: Config) -> None:
+        """Use and save `config`, then re-check the thumbnails."""
+        # Loader threads read self._config; swapping the reference keeps that safe.
+        self._config = config
         if self._config_path is not None:
             try:
-                save_config(self._config_path, self._config)
+                save_config(self._config_path, config)
             except OSError as error:
                 self.statusBar().showMessage(f"Could not save the configuration: {error}")
         # Only the thumbnails depend on it; the table keeps its unapplied choices.
@@ -129,12 +148,14 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"{folder} – {count} image(s)")
 
     def _check_sync(self, image: Path) -> SyncReport:
-        # Runs on thumbnail loader threads; only reads immutable state.
+        # Runs on thumbnail loader threads; reads one immutable Config snapshot.
+        config = self._config
         return check_sync(
             read_metadata(image),
             self._mappings,
-            self._config.master_source,
-            self._config.compared_fields,
+            config.master_source,
+            config.compared_fields,
+            config.compared_sources,
         )
 
     def _update_sync_action(self) -> None:

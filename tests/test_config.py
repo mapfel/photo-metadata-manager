@@ -59,3 +59,21 @@ def test_invalid_json_raises(tmp_path):
     path.write_text("{ master_source: xmp }", encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(path, FIELDS)
+
+
+def test_compared_sources(tmp_path):
+    assert Config().compared_sources == tuple(Source)
+    path = write(tmp_path / "c.json", {"compared_sources": ["iptc", "exif", "exif"]})
+    assert load_config(path, FIELDS).compared_sources == (Source.EXIF, Source.IPTC)
+
+    with pytest.raises(ConfigError):
+        load_config(write(tmp_path / "bad.json", {"compared_sources": ["xmp"]}), FIELDS)
+
+
+def test_compared_sources_round_trip(tmp_path):
+    from metadata_comparer.config import save_config
+
+    path = tmp_path / "c.json"
+    config = Config(compared_sources=(Source.XMP_SIDECAR,))
+    save_config(path, config)
+    assert load_config(path, FIELDS) == config
