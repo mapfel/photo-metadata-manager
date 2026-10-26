@@ -25,6 +25,20 @@ pip install -e . --group dev
 python -m metadata_comparer
 ```
 
+### WSL
+
+When working on the Windows checkout from WSL, keep the Linux environment outside the
+project so it does not clash with the Windows `.venv`:
+
+```sh
+export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/metadata-comparer"
+uv sync
+QT_QPA_PLATFORM=offscreen uv run pytest
+```
+
+Running the GUI through WSLg additionally needs Qt's X11 libraries:
+`sudo apt install libxcb-cursor0 libxkbcommon-x11-0`.
+
 ## Development
 
 ```sh
@@ -47,6 +61,6 @@ To show another field, add an entry to `mapping.yaml`; no code change is needed.
 
 ## Known issues
 
-- **Windows Smart App Control** blocks the unsigned native modules of python-exiv2
+- **Windows Smart App Control** may block the unsigned native modules of python-exiv2
   ("An Application Control policy has blocked this file"). The app still starts, but the
-  metadata table stays empty and the status bar shows the error.
+  metadata table stays empty and the status bar shows the error. Developing in WSL avoids it.
