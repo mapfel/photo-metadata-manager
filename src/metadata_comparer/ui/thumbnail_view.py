@@ -227,6 +227,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
 class ThumbnailView(QListView):
     image_selected = Signal(Path)
     image_activated = Signal(Path)  # double click
+    selection_changed = Signal()
 
     def __init__(self, checker: SyncChecker, parent=None) -> None:
         super().__init__(parent)
@@ -240,11 +241,19 @@ class ThumbnailView(QListView):
         self.setGridSize(CANVAS_SIZE + QSize(16, 32))
         self.setUniformItemSizes(True)
         self.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        # Ctrl+click toggles an image, Shift+click selects a range.
+        self.setSelectionMode(QListView.SelectionMode.ExtendedSelection)
+        self.selectionModel().selectionChanged.connect(self.selection_changed)
+        self.thumbnail_model.modelReset.connect(self.selection_changed)
         self.selectionModel().currentChanged.connect(self._on_current_changed)
         self.doubleClicked.connect(lambda index: self.image_activated.emit(index.data(PATH_ROLE)))
 
     def set_folder(self, folder: Path) -> None:
         self.thumbnail_model.set_folder(folder)
+
+    def selected_images(self) -> list[Path]:
+        rows = sorted(index.row() for index in self.selectionModel().selectedIndexes())
+        return [self.thumbnail_model.index(row).data(PATH_ROLE) for row in rows]
 
     def _on_current_changed(self, current: QModelIndex, _previous: QModelIndex) -> None:
         if current.isValid():

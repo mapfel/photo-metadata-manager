@@ -48,3 +48,34 @@ def test_master_column_is_marked(qapp):
     window = MainWindow(Config(master_source=Source.IPTC))
     header = window.metadata_table.table_model.headerData(4, Qt.Orientation.Horizontal, 0)
     assert header == "IPTC ★ master"
+
+
+def test_sync_action_follows_selection(qapp, tmp_path):
+    from PySide6.QtCore import QItemSelectionModel
+    from PySide6.QtGui import QImage
+
+    for name in ("a.jpg", "b.jpg", "c.jpg"):
+        QImage(8, 8, QImage.Format.Format_RGB32).save(str(tmp_path / name), "JPG")
+    window = MainWindow()
+    window._show_folder(tmp_path)
+    assert not window.sync_action.isEnabled()
+
+    model = window.thumbnails.thumbnail_model
+    selection = window.thumbnails.selectionModel()
+    flag = QItemSelectionModel.SelectionFlag.Select
+    selection.select(model.index(2), flag)
+    selection.select(model.index(0), flag)
+
+    assert window.sync_action.isEnabled()
+    assert window.thumbnails.selected_images() == [tmp_path / "a.jpg", tmp_path / "c.jpg"]
+
+    window._show_folder(tmp_path)  # a new folder clears the selection
+    assert not window.sync_action.isEnabled()
+
+
+def test_thumbnails_allow_extended_selection(qapp):
+    from PySide6.QtWidgets import QAbstractItemView
+
+    window = MainWindow()
+    mode = window.thumbnails.selectionMode()
+    assert mode == QAbstractItemView.SelectionMode.ExtendedSelection

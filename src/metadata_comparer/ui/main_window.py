@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt
-from PySide6.QtWidgets import QMainWindow, QSplitter
+from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtWidgets import QMainWindow, QSplitter, QToolBar
 
 from metadata_comparer.config import Config
 from metadata_comparer.metadata.comparison import compare
@@ -36,9 +37,21 @@ class MainWindow(QMainWindow):
         main.setSizes([300, 1100])
         self.setCentralWidget(main)
 
+        self.sync_action = QAction("Synchronize metadata…", self)
+        self.sync_action.setToolTip("Synchronize the metadata of the selected images")
+        self.sync_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        self.sync_action.setEnabled(False)
+        self.sync_action.triggered.connect(self._sync_selected_images)
+        toolbar = QToolBar("Main")
+        toolbar.setObjectName("main_toolbar")
+        toolbar.setMovable(False)
+        toolbar.addAction(self.sync_action)
+        self.addToolBar(toolbar)
+
         self.folder_tree.folder_selected.connect(self._show_folder)
         self.thumbnails.image_selected.connect(self._show_metadata)
-        self.thumbnails.image_activated.connect(self._open_sync_dialog)
+        self.thumbnails.image_activated.connect(lambda image: self._open_sync_dialog([image]))
+        self.thumbnails.selection_changed.connect(self._update_sync_action)
 
         self.folder_tree.select_folder(_start_folder())
 
@@ -57,10 +70,18 @@ class MainWindow(QMainWindow):
             self._config.compared_fields,
         )
 
-    def _open_sync_dialog(self, image: Path) -> None:
+    def _update_sync_action(self) -> None:
+        self.sync_action.setEnabled(bool(self.thumbnails.selected_images()))
+
+    def _sync_selected_images(self) -> None:
+        images = self.thumbnails.selected_images()
+        if images:
+            self._open_sync_dialog(images)
+
+    def _open_sync_dialog(self, images: list[Path]) -> None:
         by_name = {mapping.name: mapping for mapping in self._mappings}
         sync_mappings = [by_name[name] for name in self._config.sync_fields]
-        dialog = SyncDialog(image, sync_mappings, self)
+        dialog = SyncDialog(images, sync_mappings, self)
         dialog.metadata_written.connect(self._on_metadata_written)
         dialog.exec()
 

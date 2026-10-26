@@ -70,7 +70,12 @@ path in the status bar:
 
 ## Synchronizing metadata
 
-Double-click a thumbnail to open the synchronize dialog. Click the cell that holds the
+Double-click a thumbnail to open the synchronize dialog. To synchronize several images,
+select them (Ctrl+click, Shift+click, Ctrl+A) and press **Synchronize metadata…** in the
+toolbar (Ctrl+Shift+S). Cells then summarize all images: a value shared by all, `(empty)`,
+or `(mixed)` (hover for the distribution). The truth and target choice applies to every
+image, and each image copies its *own* value from the truth source. A batch write asks for
+confirmation first and reports how many values would be removed because the truth is empty. Click the cell that holds the
 truth (green frame), tick the checkboxes of the cells that should receive its value and
 press **Apply**. Choosing an empty cell as the truth removes the value from the targets.
 
