@@ -114,3 +114,42 @@ def test_image_data_is_preserved(tagged_jpeg, qapp):
     before = QImage(str(tagged_jpeg))
     apply_changes(tagged_jpeg, [Change(MAPPINGS["Rating"], Source.EXIF, ("5",))])
     assert QImage(str(tagged_jpeg)) == before
+
+
+def test_writes_several_text_values_per_family(tagged_jpeg):
+    keywords = ("Grüße", "sea")
+    apply_changes(
+        tagged_jpeg,
+        [
+            Change(MAPPINGS["Keywords"], target, keywords)
+            for target in (Source.EXIF, Source.XMP_EMBEDDED, Source.IPTC)
+        ]
+        + [Change(MAPPINGS["Title"], Source.EXIF, ("Grüße",))],
+    )
+
+    raw = read_metadata(tagged_jpeg)
+    assert raw.tags[Source.EXIF]["Exif.Image.XPKeywords"] == ["Grüße", "sea"]
+    assert raw.tags[Source.EXIF]["Exif.Image.XPTitle"] == ["Grüße"]
+    assert raw.tags[Source.XMP_EMBEDDED]["Xmp.dc.subject"] == ["Grüße", "sea"]
+    assert raw.tags[Source.IPTC]["Iptc.Application2.Keywords"] == ["Grüße", "sea"]
+    assert raw.tags[Source.IPTC]["Iptc.Envelope.CharacterSet"] == ["\x1b%G"]
+
+
+def test_non_repeatable_targets_join_values(tagged_jpeg):
+    authors = ("Ann", "Bob")
+    apply_changes(
+        tagged_jpeg,
+        [
+            Change(MAPPINGS["Author"], Source.EXIF, authors),
+            Change(MAPPINGS["Description"], Source.IPTC, authors),
+        ],
+    )
+
+    raw = read_metadata(tagged_jpeg)
+    assert raw.tags[Source.EXIF]["Exif.Image.Artist"] == ["Ann; Bob"]
+    assert raw.tags[Source.IPTC]["Iptc.Application2.Caption"] == ["Ann; Bob"]
+
+
+def test_rating_with_several_values_is_rejected(tagged_jpeg):
+    with pytest.raises(WriteError):
+        apply_changes(tagged_jpeg, [Change(MAPPINGS["Rating"], Source.EXIF, ("1", "2"))])

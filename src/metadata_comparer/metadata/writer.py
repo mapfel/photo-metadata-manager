@@ -10,7 +10,14 @@ from metadata_comparer.metadata.comparison import ComparisonRow
 from metadata_comparer.metadata.mapping import FieldMapping
 from metadata_comparer.metadata.reader import exiv2, find_sidecar
 from metadata_comparer.metadata.sources import Source
-from metadata_comparer.metadata.values import COMPANION_TAGS, to_tag_values
+from metadata_comparer.metadata.values import COMPANION_TAGS, FieldKind, to_tag_values
+
+XP_KEYWORDS = "Exif.Image.XPKeywords"
+IPTC_CHARSET = "Iptc.Envelope.CharacterSet"
+IPTC_UTF8 = "\x1b%G"  # ISO 2022 escape sequence for UTF-8
+_XMP_ARRAY_TYPES = (
+    {exiv2.TypeId.xmpBag, exiv2.TypeId.xmpSeq, exiv2.TypeId.xmpAlt} if exiv2 else set()
+)
 
 
 class WriteError(Exception):
@@ -97,8 +104,8 @@ def _apply(image, change: Change) -> None:
     tags = change.field.tags.get(change.target.family)
     if not tags:
         raise ValueError(f"{change.target.label} cannot store {change.field.name}")
-    if len(change.values) > 1:
-        raise ValueError(f"{change.field.name}: writing several values is not supported")
+    if len(change.values) > 1 and change.field.kind != FieldKind.TEXT:
+        raise ValueError(f"{change.field.name}: expected a single value")
 
     if not change.values:
         # Clear every mapped tag, otherwise a lower-priority tag would still show a value.
@@ -109,9 +116,39 @@ def _apply(image, change: Change) -> None:
     primary = tags[0]
     for key in COMPANION_TAGS.get(primary, ()):
         _remove(container, key)
+    if change.field.kind == FieldKind.TEXT:
+        _remove(container, primary)
+        _write_text(container, change.target, primary, change.values)
+        return
     for key, text in to_tag_values(change.field.kind, primary, change.values[0]).items():
         _remove(container, key)
         container[key] = text
+
+
+def _write_text(container, target: Source, tag: str, values: tuple[str, ...]) -> None:
+    """Write one or more text values in the form the tag expects."""
+    if target == Source.EXIF:
+        text = (";" if tag == XP_KEYWORDS else "; ").join(values)
+        if tag.startswith("Exif.Image.XP"):
+            # Windows XP* tags are bytes holding NUL-terminated UTF-16LE text.
+            text = " ".join(str(byte) for byte in text.encode("utf-16-le") + bytes(2))
+        container[tag] = text
+    elif target.family == "xmp":
+        property_type = exiv2.XmpProperties.propertyType(exiv2.XmpKey(tag))
+        if property_type in _XMP_ARRAY_TYPES:
+            for value in values:
+                container[tag] = value  # appends an array item
+        else:
+            container[tag] = "; ".join(values)
+    else:
+        key = exiv2.IptcKey(tag)
+        if any(not value.isascii() for value in values):
+            container[IPTC_CHARSET] = IPTC_UTF8
+        if exiv2.IptcDataSets.dataSetRepeatable(key.tag(), key.record()):
+            for value in values:
+                container.add(key, exiv2.StringValue(value))
+        else:
+            container[tag] = "; ".join(values)
 
 
 def _remove(container, key: str) -> None:
