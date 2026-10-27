@@ -2,7 +2,13 @@ import json
 
 import pytest
 
-from metadata_comparer.config import Config, ConfigError, load_config, write_default_config
+from metadata_comparer.config import (
+    Config,
+    ConfigError,
+    load_config,
+    save_config,
+    write_default_config,
+)
 from metadata_comparer.metadata.sources import Source
 
 FIELDS = {"Rating", "Color Label", "Date Taken", "Author"}
@@ -46,6 +52,7 @@ def test_missing_keys_fall_back_to_defaults(tmp_path):
         {"compared_fields": ["Stars"]},
         {"compared_fields": "Rating"},
         {"sync_fields": ["Stars"]},
+        {"cache_enabled": "yes"},
         ["not", "an", "object"],
     ],
 )
@@ -77,3 +84,10 @@ def test_compared_sources_round_trip(tmp_path):
     config = Config(compared_sources=(Source.XMP_SIDECAR,))
     save_config(path, config)
     assert load_config(path, FIELDS) == config
+
+
+def test_cache_enabled_round_trips(tmp_path):
+    path = tmp_path / "config.json"
+    assert Config().cache_enabled
+    save_config(path, Config(cache_enabled=False))
+    assert not load_config(path, FIELDS).cache_enabled

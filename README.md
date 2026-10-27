@@ -81,6 +81,24 @@ folder no longer exists, it starts in the Pictures folder.
 and the metadata again, e.g. after another program changed them. Unapplied choices in the
 metadata table are discarded; the selection is kept unless files were added or removed.
 
+## Metadata cache
+
+With **Cache metadata** ticked in the toolbar (the default, saved as `cache_enabled` in
+`config.json`), the app keeps the metadata it shows of each folder in a `.mcs-cache` file
+in that folder. Frames, filters and the metadata table then come from the cache instead of
+the image files; thumbnails are always decoded from the images and are not cached.
+
+- A folder without a cache file is scanned completely in the background when it is opened.
+  Images added to the folder later are read when they show up; removed ones are dropped.
+- **Synchronize metadata…** reads the chosen images afresh and updates their entries, as
+  does writing from the dialog or with **Apply** in the table.
+- Changes made by other programs are *not* noticed: press **Rescan metadata** to read the
+  whole folder again and rebuild its cache.
+- Unticking the box stops using and writing cache files; existing files stay. Ticking it
+  again rebuilds the cache of the current folder.
+- Only the tags listed in `mapping.yaml` are stored; after editing it, caches are rebuilt.
+  If the folder is read-only, the cache is kept in memory only.
+
 ## Filtering thumbnails
 
 The **Show only** checkboxes in the toolbar filter the thumbnails by their frame:

@@ -58,7 +58,8 @@ class _LoaderSignals(QObject):
 
 
 class _ThumbnailLoader(QRunnable):
-    """Decodes the thumbnail and checks the metadata sync status off the GUI thread."""
+    """Checks the metadata sync status and, if asked, decodes the thumbnail off the GUI
+    thread."""
 
     def __init__(
         self,
@@ -67,6 +68,7 @@ class _ThumbnailLoader(QRunnable):
         generation: int,
         row: int,
         path: Path,
+        with_thumbnail: bool,
     ) -> None:
         super().__init__()
         self._signals = signals
@@ -74,23 +76,32 @@ class _ThumbnailLoader(QRunnable):
         self._generation = generation
         self._row = row
         self._path = path
+        self._with_thumbnail = with_thumbnail
 
     def run(self) -> None:
-        reader = QImageReader(str(self._path))
-        reader.setAutoTransform(True)
-        size = reader.size()
-        if size.isValid():
-            # Lets the JPEG decoder downscale while decoding, which is much faster.
-            reader.setScaledSize(size.scaled(THUMBNAIL_SIZE, Qt.AspectRatioMode.KeepAspectRatio))
-        image = reader.read()
-        if image.isNull():
-            image = _placeholder_image()
+        image = QImage()
+        if self._with_thumbnail:
+            reader = QImageReader(str(self._path))
+            reader.setAutoTransform(True)
+            size = reader.size()
+            if size.isValid():
+                # Lets the JPEG decoder downscale while decoding, which is much faster.
+                reader.setScaledSize(
+                    size.scaled(THUMBNAIL_SIZE, Qt.AspectRatioMode.KeepAspectRatio)
+                )
+            image = reader.read()
+            if image.isNull():
+                image = _placeholder_image()
         report = self._checker(self._path)
         self._signals.loaded.emit(self._generation, self._row, image, report)
 
 
 class ThumbnailModel(QAbstractListModel):
-    """Images of one folder. Thumbnails load in the background when first displayed."""
+    """Images of one folder. Thumbnails load in the background when first displayed.
+
+    The sync status comes with the thumbnail; with load_all it is checked for every image,
+    displayed or not, without decoding the hidden ones.
+    """
 
     def __init__(self, checker: SyncChecker, parent=None) -> None:
         super().__init__(parent)
@@ -100,7 +111,8 @@ class ThumbnailModel(QAbstractListModel):
         self._thumbnails: dict[int, QPixmap] = {}
         self._image_sizes: dict[int, QSize] = {}
         self._reports: dict[int, SyncReport] = {}
-        self._requested: set[int] = set()
+        self._requested: set[int] = set()  # thumbnail (and status) loading started
+        self._status_requested: set[int] = set()  # status only loading started
         self._load_all = False
         self._generation = 0
         self._pool = QThreadPool(self)
@@ -117,25 +129,26 @@ class ThumbnailModel(QAbstractListModel):
         self._image_sizes.clear()
         self._reports.clear()
         self._requested.clear()
+        self._status_requested.clear()
         self.endResetModel()
         if self._load_all:
             self.load_all()
 
     def set_load_all(self, load_all: bool) -> None:
-        """Load every image, not just those displayed, e.g. so they can be filtered by
-        their sync status."""
+        """Check the sync status of every image, not just of those displayed, e.g. so
+        they can be filtered by it."""
         self._load_all = load_all
         if load_all:
             self.load_all()
 
     def load_all(self) -> None:
         for row in range(len(self._paths)):
-            if row not in self._requested:
-                self._start_loader(row)
+            if row not in self._requested and row not in self._status_requested:
+                self._start_loader(row, with_thumbnail=False)
 
     def rescan(self) -> None:
         """Re-read the folder. If its images are unchanged, reload thumbnails and sync
-        status of those already shown (keeps the selection); otherwise start over."""
+        status of those already loaded (keeps the selection); otherwise start over."""
         if self._folder is None:
             return
         if list_images(self._folder) != self._paths:
@@ -143,13 +156,15 @@ class ThumbnailModel(QAbstractListModel):
             return
         for row in sorted(self._requested):
             self._start_loader(row)
+        for row in sorted(self._status_requested - self._requested):
+            self._start_loader(row, with_thumbnail=False)
         if self._load_all:
             self.load_all()
 
     def refresh(self, path: Path) -> None:
-        """Reload thumbnail and sync status of `path`; the old thumbnail stays until then."""
+        """Re-check the sync status of `path`; the old status stays until then."""
         if path in self._paths:
-            self._start_loader(self._paths.index(path))
+            self._start_loader(self._paths.index(path), with_thumbnail=False)
 
     def rowCount(self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._paths)
@@ -181,27 +196,30 @@ class ThumbnailModel(QAbstractListModel):
             self._start_loader(row)
         return _empty_canvas()
 
-    def _start_loader(self, row: int) -> None:
-        self._requested.add(row)
+    def _start_loader(self, row: int, with_thumbnail: bool = True) -> None:
+        (self._requested if with_thumbnail else self._status_requested).add(row)
         loader = _ThumbnailLoader(
-            self._signals, self._checker, self._generation, row, self._paths[row]
+            self._signals, self._checker, self._generation, row, self._paths[row], with_thumbnail
         )
-        self._pool.start(loader)
+        # Displayed thumbnails go before the status checks of a whole folder.
+        self._pool.start(loader, 1 if with_thumbnail else 0)
 
     def _on_loaded(self, generation: int, row: int, image: QImage, report: SyncReport) -> None:
         if generation != self._generation:
             return
         self._reports[row] = report
-        self._image_sizes[row] = image.size()
-        canvas = _empty_canvas()
-        painter = QPainter(canvas)
-        target = QRect(QPoint(0, 0), image.size())
-        target.moveCenter(canvas.rect().center())
-        painter.drawImage(target, image)
-        painter.end()
-        self._thumbnails[row] = canvas
+        changed_roles = [SYNC_ROLE]
+        if not image.isNull():
+            self._image_sizes[row] = image.size()
+            canvas = _empty_canvas()
+            painter = QPainter(canvas)
+            target = QRect(QPoint(0, 0), image.size())
+            target.moveCenter(canvas.rect().center())
+            painter.drawImage(target, image)
+            painter.end()
+            self._thumbnails[row] = canvas
+            changed_roles += [Qt.ItemDataRole.DecorationRole, IMAGE_SIZE_ROLE]
         index = self.index(row)
-        changed_roles = [Qt.ItemDataRole.DecorationRole, SYNC_ROLE, IMAGE_SIZE_ROLE]
         self.dataChanged.emit(index, index, changed_roles)
 
 
@@ -232,7 +250,8 @@ class ThumbnailDelegate(QStyledItemDelegate):
         super().paint(painter, option, index)
         report = index.data(SYNC_ROLE)
         color = FRAME_COLORS.get(report.status) if report else None
-        if color is None:
+        image_size = index.data(IMAGE_SIZE_ROLE)
+        if color is None or image_size is None:  # the status may come before the thumbnail
             return
 
         item_option = QStyleOptionViewItem(option)
@@ -241,7 +260,7 @@ class ThumbnailDelegate(QStyledItemDelegate):
         area = style.subElementRect(
             QStyle.SubElement.SE_ItemViewItemDecoration, item_option, item_option.widget
         )
-        frame = QRect(QPoint(0, 0), index.data(IMAGE_SIZE_ROLE))
+        frame = QRect(QPoint(0, 0), image_size)
         frame.moveCenter(area.center())
         offset = FRAME_WIDTH // 2 + 1
         frame.adjust(-offset, -offset, offset, offset)
@@ -300,6 +319,7 @@ class ThumbnailView(QListView):
         # the current index to a neighbour of a row that is filtered out.
         self.status_filter.rowsAboutToBeRemoved.connect(self._on_rows_about_to_be_removed)
         self.setModel(self.status_filter)
+        self._check_all = False
         self.setItemDelegate(ThumbnailDelegate(self))
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setResizeMode(QListView.ResizeMode.Adjust)
@@ -323,9 +343,17 @@ class ThumbnailView(QListView):
 
     def set_status_filter(self, statuses: frozenset[SyncStatus]) -> None:
         """Show only images with these sync statuses; an empty set shows all."""
-        self.thumbnail_model.set_load_all(bool(statuses))
         self.status_filter.set_statuses(statuses)
+        self._update_load_all()
         self.selection_changed.emit()
+
+    def set_check_all(self, check_all: bool) -> None:
+        """Check the sync status of every image of a folder, e.g. to fill a cache."""
+        self._check_all = check_all
+        self._update_load_all()
+
+    def _update_load_all(self) -> None:
+        self.thumbnail_model.set_load_all(self._check_all or bool(self.status_filter.statuses))
 
     def view_index(self, row: int) -> QModelIndex:
         """The view's index of image `row` of the thumbnail model (invalid if hidden)."""

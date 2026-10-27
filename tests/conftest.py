@@ -21,3 +21,12 @@ def jpeg_file(tmp_path, qapp):
     image.fill(0xFF3366CC)
     assert image.save(str(path), "JPG")
     return path
+
+
+@pytest.fixture(autouse=True)
+def default_folder(tmp_path_factory, monkeypatch):
+    """Windows start in an empty folder, not in the user's Pictures, where the metadata
+    cache would be written."""
+    folder = tmp_path_factory.mktemp("default_folder")
+    monkeypatch.setattr("metadata_comparer.ui.main_window._default_folder", lambda: folder)
+    return folder

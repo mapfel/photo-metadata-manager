@@ -4,11 +4,13 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from metadata_comparer.metadata.mapping import FieldMapping
+from metadata_comparer.metadata.reader import read_metadata
 from metadata_comparer.metadata.sources import Source
 from metadata_comparer.ui.sync_table import (
     CUSTOM_COLUMN,
     SOURCES,
     ImageMetadata,
+    MetadataReader,
     SyncTable,
     SyncTableModel,
     show_failures,
@@ -30,9 +32,11 @@ class MetadataPanel(QWidget):
         compared_fields: frozenset[str] = frozenset(),
         compared_sources: frozenset[Source] = frozenset(Source),
         parent=None,
+        reader: MetadataReader = read_metadata,
     ) -> None:
         super().__init__(parent)
         self._mappings = mappings
+        self._reader = reader
         self._image: Path | None = None
         self.model = SyncTableModel(mappings, master, self)
         self.model.set_compared_fields(compared_fields)
@@ -67,7 +71,9 @@ class MetadataPanel(QWidget):
     def show_image(self, image: Path | None) -> None:
         """Show `image` (None clears the table); pending truth/target choices are dropped."""
         self._image = image
-        self.model.set_images([] if image is None else [ImageMetadata.read(image, self._mappings)])
+        self.model.set_images(
+            [] if image is None else [ImageMetadata.read(image, self._mappings, self._reader)]
+        )
         self.status.setText("")
 
     def apply(self) -> None:

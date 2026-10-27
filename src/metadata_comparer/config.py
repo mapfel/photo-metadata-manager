@@ -23,6 +23,8 @@ class Config:
     sync_fields: tuple[str, ...] = ("Rating", "Color Label", "Date Taken")
     # Sources checked against the master for the thumbnail frames.
     compared_sources: tuple[Source, ...] = tuple(Source)
+    # Keep the metadata of each folder in a .mcs-cache file there.
+    cache_enabled: bool = True
 
 
 def load_config(path: Path, known_fields: Collection[str]) -> Config:
@@ -47,7 +49,15 @@ def load_config(path: Path, known_fields: Collection[str]) -> Config:
         compared_fields=_field_list(document, "compared_fields", path, known_fields),
         sync_fields=_field_list(document, "sync_fields", path, known_fields),
         compared_sources=_source_list(document, "compared_sources", path),
+        cache_enabled=_flag(document, "cache_enabled", path),
     )
+
+
+def _flag(document: dict, key: str, path: Path) -> bool:
+    value = document.get(key, getattr(Config(), key))
+    if not isinstance(value, bool):
+        raise ConfigError(f"{path}: {key} must be true or false")
+    return value
 
 
 def _source_list(document: dict, key: str, path: Path) -> tuple[Source, ...]:
@@ -92,6 +102,7 @@ def save_config(path: Path, config: Config) -> None:
         "compared_fields": list(config.compared_fields),
         "sync_fields": list(config.sync_fields),
         "compared_sources": [_source_id(source) for source in config.compared_sources],
+        "cache_enabled": config.cache_enabled,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")

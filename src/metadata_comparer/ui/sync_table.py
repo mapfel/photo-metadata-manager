@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 from metadata_comparer.metadata.comparison import CellValue, ComparisonRow, compare
 from metadata_comparer.metadata.mapping import FieldMapping
 from metadata_comparer.metadata.reader import read_metadata
-from metadata_comparer.metadata.sources import Source
+from metadata_comparer.metadata.sources import RawMetadata, Source
 from metadata_comparer.metadata.values import input_hint, parse_input
 from metadata_comparer.metadata.writer import (
     Change,
@@ -44,6 +44,7 @@ from metadata_comparer.metadata.writer import (
 
 SOURCES = list(Source)
 CUSTOM_COLUMN = len(SOURCES)  # typed truth; a source only, never a target
+MetadataReader = Callable[[Path], RawMetadata]  # e.g. read_metadata or a cache in front of it
 CELL_STATE_ROLE = Qt.ItemDataRole.UserRole
 TRUTH_COLOR = QColor(40, 160, 70)
 TRUTH_BRUSH = QBrush(QColor(40, 160, 70, 40))
@@ -74,8 +75,10 @@ class ImageMetadata:
         return self.sidecar_path is not None
 
     @classmethod
-    def read(cls, path: Path, mappings: list[FieldMapping]) -> "ImageMetadata":
-        raw = read_metadata(path)
+    def read(
+        cls, path: Path, mappings: list[FieldMapping], reader: MetadataReader = read_metadata
+    ) -> "ImageMetadata":
+        raw = reader(path)
         return cls(path, compare(raw, mappings), raw.sidecar_path, tuple(raw.errors))
 
 
@@ -472,14 +475,17 @@ def show_failures(parent: QWidget, failures: list[str]) -> None:
 
 
 def read_images(
-    parent: QWidget, paths: list[Path], mappings: list[FieldMapping]
+    parent: QWidget,
+    paths: list[Path],
+    mappings: list[FieldMapping],
+    reader: MetadataReader = read_metadata,
 ) -> list[ImageMetadata]:
     """Read the metadata of `paths` with a progress dialog."""
     progress = _progress(parent, "Reading metadata…", len(paths))
     images = []
     for done, path in enumerate(paths):
         progress.setValue(done)
-        images.append(ImageMetadata.read(path, mappings))
+        images.append(ImageMetadata.read(path, mappings, reader))
     progress.setValue(len(paths))
     return images
 

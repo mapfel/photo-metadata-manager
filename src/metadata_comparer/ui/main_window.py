@@ -1,7 +1,7 @@
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QStandardPaths, Qt
+from PySide6.QtCore import QSettings, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -14,16 +14,23 @@ from PySide6.QtWidgets import (
 )
 
 from metadata_comparer.config import Config, save_config
+from metadata_comparer.metadata.cache import MetadataCache, cached_tags
 from metadata_comparer.metadata.mapping import FieldMapping, load_mappings
 from metadata_comparer.metadata.reader import read_metadata
-from metadata_comparer.metadata.sources import Source
+from metadata_comparer.metadata.sources import RawMetadata, Source
 from metadata_comparer.metadata.sync import SyncReport, SyncStatus, check_sync
 from metadata_comparer.ui.folder_tree import FolderTree
 from metadata_comparer.ui.metadata_panel import MetadataPanel
 from metadata_comparer.ui.sync_dialog import SyncDialog
-from metadata_comparer.ui.thumbnail_view import FRAME_COLORS, PATH_ROLE, ThumbnailView
+from metadata_comparer.ui.thumbnail_view import (
+    FRAME_COLORS,
+    PATH_ROLE,
+    ThumbnailView,
+    list_images,
+)
 
 LAST_FOLDER_KEY = "last_folder"
+CACHE_SAVE_INTERVAL_MS = 2000
 # Thumbnail filter checkboxes in the toolbar: label, status shown, tooltip.
 STATUS_FILTERS = (
     ("In sync", SyncStatus.OK, "Show images whose compared fields match the master"),
@@ -57,14 +64,24 @@ class MainWindow(QMainWindow):
         self._mappings = mappings or load_mappings()
         self._settings = settings
         self._folder: Path | None = None
+        # Metadata of the current folder while caching is on. Loader threads use it too.
+        self._cache: MetadataCache | None = None
+        self._cache_tags = cached_tags(self._mappings)
+        self._unsavable_cache: MetadataCache | None = None  # saving failed, don't retry
+        self._cache_save_timer = QTimer(self)
+        self._cache_save_timer.setInterval(CACHE_SAVE_INTERVAL_MS)
+        self._cache_save_timer.timeout.connect(self._save_cache)
+        self._cache_save_timer.start()
 
         self.folder_tree = FolderTree()
         self.thumbnails = ThumbnailView(self._check_sync)
+        self.thumbnails.set_check_all(self._config.cache_enabled)
         self.metadata_panel = MetadataPanel(
             self._mappings,
             self._config.master_source,
             frozenset(self._config.compared_fields),
             frozenset(self._config.compared_sources),
+            reader=self._read_metadata,
         )
 
         right = QSplitter(Qt.Orientation.Vertical)
@@ -97,13 +114,22 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.rescan_action)
         toolbar.addSeparator()
         toolbar.addWidget(self._create_status_filter())
+        toolbar.addSeparator()
+        self.cache_box = QCheckBox("Cache metadata")
+        self.cache_box.setToolTip(
+            "Keep the metadata of each folder in a .mcs-cache file there, so frames and "
+            "table show up fast. Rescan metadata reads the files again."
+        )
+        self.cache_box.setChecked(self._config.cache_enabled)
+        self.cache_box.toggled.connect(self.set_cache_enabled)
+        toolbar.addWidget(self.cache_box)
         self.addToolBar(toolbar)
 
         self.folder_tree.folder_selected.connect(self._show_folder)
         self.thumbnails.image_selected.connect(self._show_metadata)
         self.thumbnails.image_activated.connect(lambda image: self._open_sync_dialog([image]))
         self.thumbnails.selection_changed.connect(self._update_sync_action)
-        self.metadata_panel.metadata_written.connect(self.thumbnails.thumbnail_model.refresh)
+        self.metadata_panel.metadata_written.connect(self._forget_metadata)
         self.metadata_panel.compared_field_toggled.connect(self.toggle_compared_field)
         self.metadata_panel.compared_source_toggled.connect(self.toggle_compared_source)
 
@@ -113,6 +139,8 @@ class MainWindow(QMainWindow):
         """Pick up changes made by other programs; unapplied table choices are dropped."""
         if self._folder is None:
             return
+        if self._cache is not None:
+            self._cache.clear()
         self.thumbnails.rescan()
         current = self.thumbnails.currentIndex()
         if current.isValid():
@@ -166,6 +194,19 @@ class MainWindow(QMainWindow):
         self._update_config(replace(self._config, compared_sources=ordered))
         self.metadata_panel.model.set_compared_sources(frozenset(ordered))
 
+    def set_cache_enabled(self, enabled: bool) -> None:
+        """Turn the metadata cache on or off. Turning it on rebuilds the cache of the
+        current folder from its files, as they may have changed meanwhile."""
+        if enabled == self._config.cache_enabled:
+            return
+        self._save_cache()
+        self._cache = None
+        if enabled and self._folder is not None:
+            self._cache = MetadataCache(self._folder, self._cache_tags)
+        self._update_config(replace(self._config, cache_enabled=enabled))
+        self.thumbnails.set_check_all(enabled)
+        self.cache_box.setChecked(enabled)
+
     def _update_config(self, config: Config) -> None:
         """Use and save `config`, then re-check the thumbnails."""
         # Loader threads read self._config; swapping the reference keeps that safe.
@@ -185,7 +226,13 @@ class MainWindow(QMainWindow):
         return _default_folder()
 
     def _show_folder(self, folder: Path) -> None:
+        self._save_cache()
         self._folder = folder
+        self._cache = None
+        if self._config.cache_enabled:
+            # A folder without a cache file is scanned completely to build it.
+            self._cache = MetadataCache.load(folder, self._cache_tags)
+            self._cache.keep_only({image.name for image in list_images(folder)})
         self.rescan_action.setEnabled(True)
         if self._settings is not None:
             self._settings.setValue(LAST_FOLDER_KEY, str(folder))
@@ -194,11 +241,44 @@ class MainWindow(QMainWindow):
         count = self.thumbnails.thumbnail_model.rowCount()
         self.statusBar().showMessage(f"{folder} – {count} image(s)")
 
+    def _read_metadata(self, image: Path, fresh: bool = False) -> RawMetadata:
+        """The metadata of `image`, from the cache if it has them, unless `fresh`.
+        Metadata read from the file are added to the cache. Thread-safe."""
+        cache = self._cache
+        if cache is None or image.parent != cache.folder:
+            return read_metadata(image)
+        if not fresh:
+            raw = cache.get(image)
+            if raw is not None:
+                return raw
+        return cache.put(image, read_metadata(image))
+
+    def _forget_metadata(self, image: Path) -> None:
+        """`image` was written: drop its cached metadata and re-check its frame."""
+        if self._cache is not None:
+            self._cache.discard(image)
+        self.thumbnails.thumbnail_model.refresh(image)
+
+    def _save_cache(self) -> None:
+        cache = self._cache
+        if cache is None or not cache.dirty or cache is self._unsavable_cache:
+            return
+        try:
+            cache.save()
+        except OSError as error:
+            # E.g. a read-only folder: the cache then lives in memory only.
+            self._unsavable_cache = cache
+            self.statusBar().showMessage(f"Could not save the metadata cache: {error}")
+
+    def closeEvent(self, event) -> None:
+        self._save_cache()
+        super().closeEvent(event)
+
     def _check_sync(self, image: Path) -> SyncReport:
         # Runs on thumbnail loader threads; reads one immutable Config snapshot.
         config = self._config
         return check_sync(
-            read_metadata(image),
+            self._read_metadata(image),
             self._mappings,
             config.master_source,
             config.compared_fields,
@@ -216,12 +296,17 @@ class MainWindow(QMainWindow):
     def _open_sync_dialog(self, images: list[Path]) -> None:
         by_name = {mapping.name: mapping for mapping in self._mappings}
         sync_mappings = [by_name[name] for name in self._config.sync_fields]
-        dialog = SyncDialog(images, sync_mappings, self)
+        # Synchronizing reads the images afresh, which also updates their cached metadata.
+        dialog = SyncDialog(
+            images, sync_mappings, self, lambda image: self._read_metadata(image, fresh=True)
+        )
+        for image in images:
+            self.thumbnails.thumbnail_model.refresh(image)
         dialog.metadata_written.connect(self._on_metadata_written)
         dialog.exec()
 
     def _on_metadata_written(self, image: Path) -> None:
-        self.thumbnails.thumbnail_model.refresh(image)
+        self._forget_metadata(image)
         current = self.thumbnails.currentIndex()
         if current.isValid() and current.data(PATH_ROLE) == image:
             self._show_metadata(image)

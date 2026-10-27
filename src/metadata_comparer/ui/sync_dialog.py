@@ -4,8 +4,10 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QMessageBox, QVBoxLayout
 
 from metadata_comparer.metadata.mapping import FieldMapping
+from metadata_comparer.metadata.reader import read_metadata
 from metadata_comparer.metadata.writer import Change
 from metadata_comparer.ui.sync_table import (
+    MetadataReader,
     SyncTable,
     SyncTableModel,
     read_images,
@@ -19,8 +21,15 @@ class SyncDialog(QDialog):
 
     metadata_written = Signal(Path)
 
-    def __init__(self, images: list[Path], mappings: list[FieldMapping], parent=None) -> None:
+    def __init__(
+        self,
+        images: list[Path],
+        mappings: list[FieldMapping],
+        parent=None,
+        reader: MetadataReader = read_metadata,
+    ) -> None:
         super().__init__(parent)
+        self._reader = reader
         subject = images[0].name if len(images) == 1 else f"{len(images)} images"
         self.setWindowTitle(f"Synchronize metadata – {subject}")
         self.resize(900, 340)
@@ -78,7 +87,7 @@ class SyncDialog(QDialog):
         return answer == QMessageBox.StandardButton.Yes
 
     def _reload(self) -> None:
-        images = read_images(self, self._images, self._mappings)
+        images = read_images(self, self._images, self._mappings, self._reader)
         self.model.set_images(images)
         errors = [f"{image.path.name}: {error}" for image in images for error in image.errors]
         if len(errors) > 1:
