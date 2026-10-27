@@ -88,7 +88,10 @@ With **Cache metadata** ticked in the toolbar (the default, saved as `cache_enab
 in that folder. Frames, filters and the metadata table then come from the cache instead of
 the image files; thumbnails are always decoded from the images and are not cached.
 
-- A folder without a cache file is scanned completely in the background when it is opened.
+- A folder without a cache file is scanned completely in the background when it is opened;
+  the status bar shows *Reading metadata: n of m* meanwhile.
+- Frames are drawn from the cache (which also keeps each image's pixel size) before the
+  thumbnails have been decoded.
   Images added to the folder later are read when they show up; removed ones are dropped.
 - **Synchronize metadata…** reads the chosen images afresh and updates their entries, as
   does writing from the dialog or with **Apply** in the table.

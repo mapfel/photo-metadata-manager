@@ -70,3 +70,22 @@ def test_reads_all_sources(jpeg_file):
     assert raw.tags[Source.XMP_EMBEDDED]["Xmp.dc.description"] == ["Beach"]
     assert raw.tags[Source.IPTC]["Iptc.Application2.Keywords"] == ["sea", "sand"]
     assert raw.tags[Source.XMP_SIDECAR]["Xmp.xmp.Rating"] == ["4"]
+
+
+@pytest.mark.parametrize(("orientation", "size"), [(1, (32, 24)), (6, (24, 32))])
+def test_reads_image_size_as_displayed(jpeg_file, orientation, size):
+    exiv2 = pytest.importorskip("exiv2", exc_type=ImportError)
+    image = exiv2.ImageFactory.open(str(jpeg_file))
+    image.readMetadata()
+    image.exifData()["Exif.Image.Orientation"] = exiv2.UShortValue(orientation)
+    image.writeMetadata()
+
+    assert read_metadata(jpeg_file).image_size == size
+
+
+def test_reads_non_ascii_file_name(jpeg_file):
+    pytest.importorskip("exiv2", exc_type=ImportError)
+    renamed = jpeg_file.rename(jpeg_file.with_name("Größe_ü.jpg"))
+    raw = read_metadata(renamed)
+    assert not raw.errors
+    assert raw.image_size == (32, 24)

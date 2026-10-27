@@ -11,7 +11,7 @@ from metadata_comparer.metadata.sources import RawMetadata, Source
 from metadata_comparer.metadata.sync import SyncStatus
 from metadata_comparer.ui import main_window as main_window_module
 from metadata_comparer.ui.main_window import MainWindow
-from metadata_comparer.ui.thumbnail_view import SYNC_ROLE
+from metadata_comparer.ui.thumbnail_view import IMAGE_SIZE_ROLE, SYNC_ROLE
 
 TAGS = cached_tags(load_mappings())
 
@@ -201,3 +201,32 @@ def test_cache_checkbox_toggles_and_rebuilds(qapp, tmp_path):
     window.cache_box.setChecked(True)
     assert window._config.cache_enabled
     assert wait_for(lambda: len(window._cache) == 1, qapp)
+
+
+def test_cache_keeps_image_size(tmp_path):
+    cache = MetadataCache(tmp_path, TAGS)
+    cache.put(tmp_path / "a.jpg", RawMetadata(tags={}, image_size=(4000, 3000)))
+    cache.save()
+    assert MetadataCache.load(tmp_path, TAGS).get(tmp_path / "a.jpg").image_size == (4000, 3000)
+
+
+def test_cache_of_older_version_is_rebuilt(tmp_path):
+    document = {
+        "version": 1,
+        "tags": sorted(TAGS),
+        "images": {"a.jpg": {"sidecar": None, "tags": {}}},
+    }
+    (tmp_path / CACHE_FILE_NAME).write_text(json.dumps(document), encoding="utf-8")
+    assert len(MetadataCache.load(tmp_path, TAGS)) == 0
+
+
+def test_cached_folder_draws_frames_without_reading_files(qapp, tmp_path, monkeypatch):
+    make_jpeg(tmp_path / "a.jpg", exif_rating=2, xmp_rating=4)
+    open_folder(MainWindow(), tmp_path, qapp, 1)
+
+    monkeypatch.setattr(main_window_module, "read_metadata", lambda path: pytest.fail("read"))
+    window = MainWindow()
+    window._show_folder(tmp_path)
+    model = window.thumbnails.thumbnail_model
+    assert status(window, 0, qapp) == SyncStatus.CONFLICT
+    assert model.data(model.index(0), IMAGE_SIZE_ROLE) is not None  # frame can be drawn

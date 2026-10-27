@@ -5,7 +5,7 @@ from PySide6.QtGui import QImage
 
 from metadata_comparer.metadata.sync import SyncReport, SyncStatus
 from metadata_comparer.ui.main_window import MainWindow
-from metadata_comparer.ui.thumbnail_view import PATH_ROLE, SYNC_ROLE, ThumbnailView
+from metadata_comparer.ui.thumbnail_view import PATH_ROLE, SYNC_ROLE, ImageStatus, ThumbnailView
 
 # The fake checker derives the status from the file name.
 STATUS_BY_NAME = {
@@ -17,7 +17,7 @@ STATUS_BY_NAME = {
 
 
 def fake_checker(path):
-    return SyncReport(STATUS_BY_NAME[path.name])
+    return ImageStatus(SyncReport(STATUS_BY_NAME[path.name]))
 
 
 def wait_for(condition, qapp, timeout=5):

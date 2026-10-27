@@ -18,15 +18,15 @@ from metadata_comparer.metadata.cache import MetadataCache, cached_tags
 from metadata_comparer.metadata.mapping import FieldMapping, load_mappings
 from metadata_comparer.metadata.reader import read_metadata
 from metadata_comparer.metadata.sources import RawMetadata, Source
-from metadata_comparer.metadata.sync import SyncReport, SyncStatus, check_sync
+from metadata_comparer.metadata.sync import SyncStatus, check_sync
 from metadata_comparer.ui.folder_tree import FolderTree
 from metadata_comparer.ui.metadata_panel import MetadataPanel
 from metadata_comparer.ui.sync_dialog import SyncDialog
 from metadata_comparer.ui.thumbnail_view import (
     FRAME_COLORS,
     PATH_ROLE,
+    ImageStatus,
     ThumbnailView,
-    list_images,
 )
 
 LAST_FOLDER_KEY = "last_folder"
@@ -124,6 +124,12 @@ class MainWindow(QMainWindow):
         self.cache_box.toggled.connect(self.set_cache_enabled)
         toolbar.addWidget(self.cache_box)
         self.addToolBar(toolbar)
+
+        # Shows how far reading the metadata of a whole folder (cache, filter) has come.
+        self.scan_progress = QLabel()
+        self.scan_progress.hide()
+        self.statusBar().addPermanentWidget(self.scan_progress)
+        self.thumbnails.thumbnail_model.statuses_progress.connect(self._show_scan_progress)
 
         self.folder_tree.folder_selected.connect(self._show_folder)
         self.thumbnails.image_selected.connect(self._show_metadata)
@@ -232,11 +238,12 @@ class MainWindow(QMainWindow):
         if self._config.cache_enabled:
             # A folder without a cache file is scanned completely to build it.
             self._cache = MetadataCache.load(folder, self._cache_tags)
-            self._cache.keep_only({image.name for image in list_images(folder)})
         self.rescan_action.setEnabled(True)
         if self._settings is not None:
             self._settings.setValue(LAST_FOLDER_KEY, str(folder))
         self.thumbnails.set_folder(folder)
+        if self._cache is not None:
+            self._cache.keep_only({image.name for image in self.thumbnails.images()})
         self.metadata_panel.show_image(None)
         count = self.thumbnails.thumbnail_model.rowCount()
         self.statusBar().showMessage(f"{folder} – {count} image(s)")
@@ -274,16 +281,23 @@ class MainWindow(QMainWindow):
         self._save_cache()
         super().closeEvent(event)
 
-    def _check_sync(self, image: Path) -> SyncReport:
+    def _check_sync(self, image: Path) -> ImageStatus:
         # Runs on thumbnail loader threads; reads one immutable Config snapshot.
         config = self._config
-        return check_sync(
-            self._read_metadata(image),
+        raw = self._read_metadata(image)
+        report = check_sync(
+            raw,
             self._mappings,
             config.master_source,
             config.compared_fields,
             config.compared_sources,
         )
+        return ImageStatus(report, raw.image_size)
+
+    def _show_scan_progress(self, known: int, total: int) -> None:
+        scanning = self.thumbnails.thumbnail_model.loads_all and known < total
+        self.scan_progress.setText(f"Reading metadata: {known} of {total}")
+        self.scan_progress.setVisible(scanning)
 
     def _update_sync_action(self) -> None:
         self.sync_action.setEnabled(bool(self.thumbnails.selected_images()))

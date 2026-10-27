@@ -23,3 +23,5 @@ class RawMetadata:
     tags: dict[Source, dict[str, list[str]]] = field(default_factory=dict)
     sidecar_path: Path | None = None
     errors: list[str] = field(default_factory=list)
+    # Width and height in pixels as displayed, i.e. with the Exif orientation applied.
+    image_size: tuple[int, int] | None = None

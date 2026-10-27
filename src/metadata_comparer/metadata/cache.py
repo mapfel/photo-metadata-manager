@@ -11,7 +11,7 @@ from metadata_comparer.metadata.sources import RawMetadata, Source
 from metadata_comparer.metadata.values import COMPANION_TAGS
 
 CACHE_FILE_NAME = ".mcs-cache"
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # 2: image sizes, so frames can be drawn before the thumbnails
 _SOURCE_IDS = {source.name.lower(): source for source in Source}
 
 
@@ -79,6 +79,7 @@ class MetadataCache:
                 for source, tags in raw.tags.items()
             },
             sidecar_path=raw.sidecar_path,
+            image_size=raw.image_size,
         )
         with self._lock:
             self._entries[image.name] = reduced
@@ -125,6 +126,7 @@ class MetadataCache:
 def _raw_to_json(raw: RawMetadata) -> dict:
     return {
         "sidecar": raw.sidecar_path.name if raw.sidecar_path else None,
+        "size": list(raw.image_size) if raw.image_size else None,
         "tags": {source.name.lower(): tags for source, tags in raw.tags.items()},
     }
 
@@ -136,4 +138,9 @@ def _raw_from_json(folder: Path, entry: dict) -> RawMetadata:
             str(tag): [str(value) for value in values] for tag, values in source_tags.items()
         }
     sidecar = entry["sidecar"]
-    return RawMetadata(tags=tags, sidecar_path=folder / sidecar if sidecar else None)
+    size = entry["size"]
+    return RawMetadata(
+        tags=tags,
+        sidecar_path=folder / sidecar if sidecar else None,
+        image_size=(int(size[0]), int(size[1])) if size else None,
+    )

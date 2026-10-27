@@ -1,5 +1,6 @@
 """Reads raw metadata from an image file and its XMP sidecar using exiv2."""
 
+import os
 import re
 from pathlib import Path
 
@@ -22,6 +23,8 @@ else:
 _LANG_ALT_ENTRY = re.compile(r'lang="([^"]*)" ')
 _COMMENT_CHARSET = re.compile(r'^charset=("[^"]*"|\S+)\s?')
 _XMP_ARRAY_TYPES = {"XmpBag", "XmpSeq", "XmpAlt"}
+_ORIENTATION = "Exif.Image.Orientation"
+_ROTATED_ORIENTATIONS = {5, 6, 7, 8}  # turned by 90 degrees: width and height swap
 
 
 def find_sidecar(image_path: Path) -> Path | None:
@@ -57,10 +60,8 @@ def read_metadata(image_path: Path) -> RawMetadata:
         return raw
 
     try:
-        # Opening from memory avoids exiv2's narrow-path handling of non-ASCII file names on
-        # Windows. The bytes must stay referenced while the image is in use.
-        data = image_path.read_bytes()
-        image = _open(data)
+        image = _open(image_path)
+        raw.image_size = _image_size(image)
         raw.tags[Source.EXIF] = _collect_exif(image.exifData())
         raw.tags[Source.XMP_EMBEDDED] = _collect_xmp(image.xmpData())
         raw.tags[Source.IPTC] = _collect_iptc(image.iptcData())
@@ -69,18 +70,38 @@ def read_metadata(image_path: Path) -> RawMetadata:
 
     if raw.sidecar_path is not None:
         try:
-            sidecar_data = raw.sidecar_path.read_bytes()
-            sidecar = _open(sidecar_data)
+            sidecar = _open(raw.sidecar_path)
             raw.tags[Source.XMP_SIDECAR] = _collect_xmp(sidecar.xmpData())
         except (OSError, exiv2.Exiv2Error) as error:
             raw.errors.append(f"{raw.sidecar_path.name}: {error}")
     return raw
 
 
-def _open(data: bytes):
-    image = exiv2.ImageFactory.open(data)
+def _open(path: Path):
+    if os.name != "nt" or str(path).isascii():
+        # exiv2 then reads just the metadata, not the whole file: much faster, above all
+        # on network and WSL drives.
+        image = exiv2.ImageFactory.open(str(path))
+    else:
+        # Opening from memory avoids exiv2's narrow-path handling of non-ASCII file names
+        # on Windows. The buffer must stay referenced while exiv2 reads from it; the
+        # metadata are copied out of it.
+        data = path.read_bytes()
+        image = exiv2.ImageFactory.open(data)
+        image.readMetadata()
+        return image
     image.readMetadata()
     return image
+
+
+def _image_size(image) -> tuple[int, int] | None:
+    width, height = image.pixelWidth(), image.pixelHeight()
+    if width <= 0 or height <= 0:
+        return None
+    orientation = next(
+        (datum.toInt64() for datum in image.exifData() if datum.key() == _ORIENTATION), 1
+    )
+    return (height, width) if orientation in _ROTATED_ORIENTATIONS else (width, height)
 
 
 def _collect_exif(exif_data) -> dict[str, list[str]]:
