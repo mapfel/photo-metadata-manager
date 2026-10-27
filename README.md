@@ -81,6 +81,18 @@ folder no longer exists, it starts in the Pictures folder.
 and the metadata again, e.g. after another program changed them. Unapplied choices in the
 metadata table are discarded; the selection is kept unless files were added or removed.
 
+## Filtering thumbnails
+
+The **Show only** checkboxes in the toolbar filter the thumbnails by their frame:
+**In sync** (no frame), **Missing** (yellow) and **Conflict** (red). Ticked boxes combine,
+e.g. Missing + Conflict shows every image that needs attention. With no box ticked (the
+default) all images are shown, including those whose metadata could not be read.
+
+While a filter is active, the metadata of every image in the folder is checked, not just
+of the visible thumbnails, so an image appears once its check is done. An image that stops
+matching, e.g. after its conflict was fixed, disappears; if it was shown in the metadata
+table, the table is cleared.
+
 ## Synchronizing metadata
 
 The metadata table below the thumbnails works the same way as the dialog described next,

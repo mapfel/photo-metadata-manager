@@ -75,7 +75,7 @@ def test_apply_writes_ticked_cells(qapp, rated_jpeg):
 def test_main_window_shows_clicked_image_in_panel(qapp, rated_jpeg):
     window = MainWindow()
     window._show_folder(rated_jpeg.parent)
-    window.thumbnails.setCurrentIndex(window.thumbnails.thumbnail_model.index(0))
+    window.thumbnails.setCurrentIndex(window.thumbnails.view_index(0))
 
     assert window.metadata_panel.current.path == rated_jpeg
     model = window.metadata_panel.model

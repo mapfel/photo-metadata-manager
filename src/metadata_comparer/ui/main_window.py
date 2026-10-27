@@ -2,20 +2,42 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QStandardPaths, Qt
-from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtWidgets import QMainWindow, QSplitter, QToolBar
+from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QSplitter,
+    QToolBar,
+    QWidget,
+)
 
 from metadata_comparer.config import Config, save_config
 from metadata_comparer.metadata.mapping import FieldMapping, load_mappings
 from metadata_comparer.metadata.reader import read_metadata
 from metadata_comparer.metadata.sources import Source
-from metadata_comparer.metadata.sync import SyncReport, check_sync
+from metadata_comparer.metadata.sync import SyncReport, SyncStatus, check_sync
 from metadata_comparer.ui.folder_tree import FolderTree
 from metadata_comparer.ui.metadata_panel import MetadataPanel
 from metadata_comparer.ui.sync_dialog import SyncDialog
-from metadata_comparer.ui.thumbnail_view import PATH_ROLE, ThumbnailView
+from metadata_comparer.ui.thumbnail_view import FRAME_COLORS, PATH_ROLE, ThumbnailView
 
 LAST_FOLDER_KEY = "last_folder"
+# Thumbnail filter checkboxes in the toolbar: label, status shown, tooltip.
+STATUS_FILTERS = (
+    ("In sync", SyncStatus.OK, "Show images whose compared fields match the master"),
+    (
+        "Missing",
+        SyncStatus.MISSING,
+        "Show images with a yellow frame: the master has a value another source lacks",
+    ),
+    (
+        "Conflict",
+        SyncStatus.CONFLICT,
+        "Show images with a red frame: another source holds a different value",
+    ),
+)
 
 
 class MainWindow(QMainWindow):
@@ -73,6 +95,8 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         toolbar.addAction(self.sync_action)
         toolbar.addAction(self.rescan_action)
+        toolbar.addSeparator()
+        toolbar.addWidget(self._create_status_filter())
         self.addToolBar(toolbar)
 
         self.folder_tree.folder_selected.connect(self._show_folder)
@@ -97,6 +121,29 @@ class MainWindow(QMainWindow):
             self.metadata_panel.show_image(None)
         count = self.thumbnails.thumbnail_model.rowCount()
         self.statusBar().showMessage(f"Rescanned {self._folder} – {count} image(s)")
+
+    def _create_status_filter(self) -> QWidget:
+        """Checkboxes that combine to a thumbnail filter; none checked shows all images."""
+        group = QWidget()
+        group.setObjectName("status_filter")
+        layout = QHBoxLayout(group)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.addWidget(QLabel("Show only:"))
+        self.status_filter_boxes: dict[SyncStatus, QCheckBox] = {}
+        for label, status, tooltip in STATUS_FILTERS:
+            box = QCheckBox(label)
+            box.setIcon(_frame_icon(FRAME_COLORS.get(status)))
+            box.setToolTip(f"{tooltip}. With no box ticked, all images are shown.")
+            box.toggled.connect(self._apply_status_filter)
+            layout.addWidget(box)
+            self.status_filter_boxes[status] = box
+        return group
+
+    def _apply_status_filter(self) -> None:
+        statuses = frozenset(
+            status for status, box in self.status_filter_boxes.items() if box.isChecked()
+        )
+        self.thumbnails.set_status_filter(statuses)
 
     def toggle_compared_field(self, field: str) -> None:
         """Include or exclude `field` from the thumbnail frames and re-check the thumbnails."""
@@ -179,8 +226,10 @@ class MainWindow(QMainWindow):
         if current.isValid() and current.data(PATH_ROLE) == image:
             self._show_metadata(image)
 
-    def _show_metadata(self, image: Path) -> None:
+    def _show_metadata(self, image: Path | None) -> None:
         self.metadata_panel.show_image(image)
+        if image is None:
+            return
         metadata = self.metadata_panel.current
         if metadata.errors:
             self.statusBar().showMessage(" | ".join(metadata.errors))
@@ -188,6 +237,18 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"{image.name} – sidecar: {metadata.sidecar_path.name}")
         else:
             self.statusBar().showMessage(f"{image.name} – no sidecar")
+
+
+def _frame_icon(color: QColor | None) -> QIcon:
+    """A small thumbnail-like square with the frame `color`; grey outline for none."""
+    pixmap = QPixmap(14, 14)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setBrush(QColor(235, 235, 235))
+    painter.setPen(QPen(color, 3) if color else QPen(QColor(150, 150, 150), 1))
+    painter.drawRect(pixmap.rect().adjusted(1, 1, -2, -2))
+    painter.end()
+    return QIcon(pixmap)
 
 
 def _default_folder() -> Path:

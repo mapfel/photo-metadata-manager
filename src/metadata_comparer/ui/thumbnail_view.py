@@ -11,6 +11,7 @@ from PySide6.QtCore import (
     QRect,
     QRunnable,
     QSize,
+    QSortFilterProxyModel,
     Qt,
     QThreadPool,
     Signal,
@@ -100,6 +101,7 @@ class ThumbnailModel(QAbstractListModel):
         self._image_sizes: dict[int, QSize] = {}
         self._reports: dict[int, SyncReport] = {}
         self._requested: set[int] = set()
+        self._load_all = False
         self._generation = 0
         self._pool = QThreadPool(self)
         self._signals = _LoaderSignals(self)
@@ -116,6 +118,20 @@ class ThumbnailModel(QAbstractListModel):
         self._reports.clear()
         self._requested.clear()
         self.endResetModel()
+        if self._load_all:
+            self.load_all()
+
+    def set_load_all(self, load_all: bool) -> None:
+        """Load every image, not just those displayed, e.g. so they can be filtered by
+        their sync status."""
+        self._load_all = load_all
+        if load_all:
+            self.load_all()
+
+    def load_all(self) -> None:
+        for row in range(len(self._paths)):
+            if row not in self._requested:
+                self._start_loader(row)
 
     def rescan(self) -> None:
         """Re-read the folder. If its images are unchanged, reload thumbnails and sync
@@ -127,6 +143,8 @@ class ThumbnailModel(QAbstractListModel):
             return
         for row in sorted(self._requested):
             self._start_loader(row)
+        if self._load_all:
+            self.load_all()
 
     def refresh(self, path: Path) -> None:
         """Reload thumbnail and sync status of `path`; the old thumbnail stays until then."""
@@ -237,15 +255,51 @@ class ThumbnailDelegate(QStyledItemDelegate):
         painter.restore()
 
 
+class SyncStatusFilter(QSortFilterProxyModel):
+    """Shows only images with one of the chosen sync statuses; none chosen shows all.
+
+    While a filter is active, images whose status is not known yet are hidden."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._statuses: frozenset[SyncStatus] = frozenset()
+        self.setFilterRole(SYNC_ROLE)  # re-filter a row when its status arrives
+
+    @property
+    def statuses(self) -> frozenset[SyncStatus]:
+        return self._statuses
+
+    def set_statuses(self, statuses: frozenset[SyncStatus]) -> None:
+        if not hasattr(self, "beginFilterChange"):  # Qt < 6.10
+            self._statuses = statuses
+            self.invalidateFilter()
+            return
+        self.beginFilterChange()
+        self._statuses = statuses
+        self.endFilterChange(QSortFilterProxyModel.Direction.Rows)
+
+    def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
+        if not self._statuses:
+            return True
+        index = self.sourceModel().index(source_row, 0, source_parent)
+        report = index.data(SYNC_ROLE)
+        return report is not None and report.status in self._statuses
+
+
 class ThumbnailView(QListView):
-    image_selected = Signal(Path)
+    image_selected = Signal(object)  # Path, or None when the current image was filtered out
     image_activated = Signal(Path)  # double click
     selection_changed = Signal()
 
     def __init__(self, checker: SyncChecker, parent=None) -> None:
         super().__init__(parent)
         self.thumbnail_model = ThumbnailModel(checker, self)
-        self.setModel(self.thumbnail_model)
+        self.status_filter = SyncStatusFilter(self)
+        self.status_filter.setSourceModel(self.thumbnail_model)
+        # Connected before setModel(), so it runs before the selection model would move
+        # the current index to a neighbour of a row that is filtered out.
+        self.status_filter.rowsAboutToBeRemoved.connect(self._on_rows_about_to_be_removed)
+        self.setModel(self.status_filter)
         self.setItemDelegate(ThumbnailDelegate(self))
         self.setViewMode(QListView.ViewMode.IconMode)
         self.setResizeMode(QListView.ResizeMode.Adjust)
@@ -267,10 +321,27 @@ class ThumbnailView(QListView):
     def rescan(self) -> None:
         self.thumbnail_model.rescan()
 
-    def selected_images(self) -> list[Path]:
-        rows = sorted(index.row() for index in self.selectionModel().selectedIndexes())
-        return [self.thumbnail_model.index(row).data(PATH_ROLE) for row in rows]
+    def set_status_filter(self, statuses: frozenset[SyncStatus]) -> None:
+        """Show only images with these sync statuses; an empty set shows all."""
+        self.thumbnail_model.set_load_all(bool(statuses))
+        self.status_filter.set_statuses(statuses)
+        self.selection_changed.emit()
 
-    def _on_current_changed(self, current: QModelIndex, _previous: QModelIndex) -> None:
+    def view_index(self, row: int) -> QModelIndex:
+        """The view's index of image `row` of the thumbnail model (invalid if hidden)."""
+        return self.status_filter.mapFromSource(self.thumbnail_model.index(row))
+
+    def selected_images(self) -> list[Path]:
+        indexes = sorted(self.selectionModel().selectedIndexes(), key=QModelIndex.row)
+        return [index.data(PATH_ROLE) for index in indexes]
+
+    def _on_rows_about_to_be_removed(self, parent: QModelIndex, first: int, last: int) -> None:
+        current = self.currentIndex()
+        if current.isValid() and first <= current.row() <= last:
+            self.selectionModel().clearCurrentIndex()
+
+    def _on_current_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
         if current.isValid():
             self.image_selected.emit(current.data(PATH_ROLE))
+        elif previous.isValid():
+            self.image_selected.emit(None)

@@ -70,8 +70,10 @@ def test_rescan_reloads_externally_changed_metadata(qapp, tmp_path):
     assert wait_for(lambda: model.data(index, SYNC_ROLE) is not None, qapp)
     assert model.data(index, SYNC_ROLE).status == SyncStatus.OK
     selection = window.thumbnails.selectionModel()
-    selection.setCurrentIndex(index, QItemSelectionModel.SelectionFlag.SelectCurrent)
-    selection.select(model.index(1), QItemSelectionModel.SelectionFlag.Select)
+    selection.setCurrentIndex(
+        window.thumbnails.view_index(0), QItemSelectionModel.SelectionFlag.SelectCurrent
+    )
+    selection.select(window.thumbnails.view_index(1), QItemSelectionModel.SelectionFlag.Select)
 
     # Another program writes a conflicting rating.
     other = exiv2.ImageFactory.open(str(image))

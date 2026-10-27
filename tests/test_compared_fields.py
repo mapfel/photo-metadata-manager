@@ -38,7 +38,7 @@ def test_save_config_keeps_unknown_keys(tmp_path):
 def test_compared_fields_are_bold(qapp, jpeg_file):
     window = MainWindow(Config(compared_fields=("Rating",)))
     window._show_folder(jpeg_file.parent)
-    window.thumbnails.setCurrentIndex(window.thumbnails.thumbnail_model.index(0))
+    window.thumbnails.setCurrentIndex(window.thumbnails.view_index(0))
 
     assert header(window, "Rating", Qt.ItemDataRole.FontRole).bold()
     assert header(window, "Title", Qt.ItemDataRole.FontRole) is None
@@ -51,7 +51,7 @@ def test_clicking_the_field_name_toggles_and_saves(qapp, jpeg_file, tmp_path):
     window.resize(1000, 800)
     window.show()
     window._show_folder(jpeg_file.parent)
-    window.thumbnails.setCurrentIndex(window.thumbnails.thumbnail_model.index(0))
+    window.thumbnails.setCurrentIndex(window.thumbnails.view_index(0))
     qapp.processEvents()  # let the header layout settle before computing click positions
     vertical = window.metadata_panel.table.verticalHeader()
     title_row = [m.name for m in window._mappings].index("Title")
@@ -79,7 +79,7 @@ def test_toggle_rechecks_thumbnails_and_keeps_table_choices(qapp, jpeg_file):
     window._show_folder(jpeg_file.parent)
     model = window.thumbnails.thumbnail_model
     index = model.index(0)
-    window.thumbnails.setCurrentIndex(index)
+    window.thumbnails.setCurrentIndex(window.thumbnails.view_index(0))
     model.data(index, Qt.ItemDataRole.DecorationRole)
     assert wait_for(lambda: model.data(index, SYNC_ROLE) is not None, qapp)
     assert model.data(index, SYNC_ROLE).status == SyncStatus.CONFLICT
@@ -105,7 +105,7 @@ def test_compared_sources_are_bold_and_toggle_on_click(qapp, jpeg_file, tmp_path
     window.resize(1000, 800)
     window.show()
     window._show_folder(jpeg_file.parent)
-    window.thumbnails.setCurrentIndex(window.thumbnails.thumbnail_model.index(0))
+    window.thumbnails.setCurrentIndex(window.thumbnails.view_index(0))
     bold = Qt.ItemDataRole.FontRole
 
     assert source_header(window, 0, bold).bold()  # Exif

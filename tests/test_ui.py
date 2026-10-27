@@ -22,7 +22,7 @@ def test_selecting_image_fills_metadata_table(qapp, jpeg_file):
     window._show_folder(jpeg_file.parent)
     assert window.thumbnails.thumbnail_model.rowCount() == 1
 
-    window.thumbnails.setCurrentIndex(window.thumbnails.thumbnail_model.index(0))
+    window.thumbnails.setCurrentIndex(window.thumbnails.view_index(0))
 
     table = window.metadata_panel.model
     assert table.columnCount() == 5  # 4 sources + Custom; field names are row headers
@@ -61,11 +61,10 @@ def test_sync_action_follows_selection(qapp, tmp_path):
     window._show_folder(tmp_path)
     assert not window.sync_action.isEnabled()
 
-    model = window.thumbnails.thumbnail_model
     selection = window.thumbnails.selectionModel()
     flag = QItemSelectionModel.SelectionFlag.Select
-    selection.select(model.index(2), flag)
-    selection.select(model.index(0), flag)
+    selection.select(window.thumbnails.view_index(2), flag)
+    selection.select(window.thumbnails.view_index(0), flag)
 
     assert window.sync_action.isEnabled()
     assert window.thumbnails.selected_images() == [tmp_path / "a.jpg", tmp_path / "c.jpg"]
