@@ -63,6 +63,10 @@ path in the status bar:
   - **red frame**: another source holds a different value (or a value the master lacks),
   - **yellow frame**: the master has a value that another source is missing.
 
+  Until a thumbnail has been decoded, a placeholder frame in the image's shape stands in
+  for it: **light grey** when its metadata came from the cache, **black** when they had to
+  be read from the file. It disappears with the thumbnail, or turns red or yellow.
+
   In the metadata table these fields are shown in **bold**; clicking a field name there
   includes or excludes it, saves `config.json` and re-checks the thumbnails at once.
 - `compared_sources`: sources checked against the master (default: all four). Shown as
@@ -90,8 +94,8 @@ the image files; thumbnails are always decoded from the images and are not cache
 
 - A folder without a cache file is scanned completely in the background when it is opened;
   the status bar shows *Reading metadata: n of m* meanwhile.
-- Frames are drawn from the cache (which also keeps each image's pixel size) before the
-  thumbnails have been decoded.
+- Frames are drawn from the cache (which also keeps each image's pixel size and
+  orientation, portrait or landscape) before the thumbnails have been decoded.
   Images added to the folder later are read when they show up; removed ones are dropped.
 - **Synchronize metadata…** reads the chosen images afresh and updates their entries, as
   does writing from the dialog or with **Apply** in the table.
@@ -99,6 +103,10 @@ the image files; thumbnails are always decoded from the images and are not cache
   whole folder again and rebuild its cache.
 - Unticking the box stops using and writing cache files; existing files stay. Ticking it
   again rebuilds the cache of the current folder.
+- The cache file records its cache version and the app version that wrote it. A cache of
+  another cache version (written by an older or newer app) is invalid: a message says so,
+  and after **OK** the folder is read again to refresh it. The app version is also recorded
+  as `app_version` in `config.json`.
 - Only the tags listed in `mapping.yaml` are stored; after editing it, caches are rebuilt.
   If the folder is read-only, the cache is kept in memory only.
 

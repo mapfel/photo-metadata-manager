@@ -17,6 +17,7 @@ from PySide6.QtCore import (
     QSortFilterProxyModel,
     Qt,
     QThreadPool,
+    QTimer,
     Signal,
 )
 from PySide6.QtGui import QColor, QImage, QImageReader, QPainter, QPen, QPixmap
@@ -39,10 +40,16 @@ CANVAS_SIZE = THUMBNAIL_SIZE.grownBy(QMargins(*[CANVAS_MARGIN] * 4))
 PATH_ROLE = Qt.ItemDataRole.UserRole
 SYNC_ROLE = Qt.ItemDataRole.UserRole + 1
 IMAGE_SIZE_ROLE = Qt.ItemDataRole.UserRole + 2  # size of the thumbnail within the canvas
+FRAME_COLOR_ROLE = Qt.ItemDataRole.UserRole + 3  # QColor of the frame, None for no frame
 FRAME_COLORS = {
     SyncStatus.CONFLICT: QColor(220, 30, 30),
     SyncStatus.MISSING: QColor(255, 225, 100),
 }
+# Frames that stand in for a thumbnail until it is decoded: light grey when the metadata
+# came from the cache, black when they had to be read from the file. A red or yellow frame
+# replaces either; otherwise they disappear with the thumbnail.
+CACHED_PLACEHOLDER_COLOR = QColor(200, 200, 200)
+PLACEHOLDER_COLOR = QColor(0, 0, 0)
 
 
 @dataclass(frozen=True)
@@ -51,9 +58,13 @@ class ImageStatus:
 
     report: SyncReport
     image_size: tuple[int, int] | None = None  # pixels as displayed, i.e. after rotation
+    cached: bool = False  # the metadata came from the cache, not from the file
 
 
 SyncChecker = Callable[[Path], ImageStatus]
+# Answers from cached metadata only, without reading the file; None if not cached. Fast
+# enough for the GUI thread.
+CachedSyncChecker = Callable[[Path], ImageStatus | None]
 # Thread pool priorities: frames of displayed images first, then their thumbnails, then the
 # status of the rest of the folder.
 URGENT_STATUS_PRIORITY = 2
@@ -153,14 +164,21 @@ class ThumbnailModel(QAbstractListModel):
 
     statuses_progress = Signal(int, int)  # images with a known status, all images
 
-    def __init__(self, checker: SyncChecker, parent=None) -> None:
+    def __init__(
+        self,
+        checker: SyncChecker,
+        parent=None,
+        cached_checker: CachedSyncChecker | None = None,
+    ) -> None:
         super().__init__(parent)
         self._checker = checker
+        self._cached_checker = cached_checker
         self._folder: Path | None = None
         self._paths: list[Path] = []
         self._thumbnails: dict[int, QPixmap] = {}
         self._image_sizes: dict[int, QSize] = {}
         self._reports: dict[int, SyncReport] = {}
+        self._from_cache: set[int] = set()  # status known from cached metadata
         self._requested: set[int] = set()  # thumbnail loading started
         self._status_jobs: dict[int, _StatusLoader] = {}  # pending status checks
         self._job_ids = itertools.count()
@@ -180,6 +198,7 @@ class ThumbnailModel(QAbstractListModel):
         self._thumbnails.clear()
         self._image_sizes.clear()
         self._reports.clear()
+        self._from_cache.clear()
         self._requested.clear()
         self._status_jobs.clear()
         self.endResetModel()
@@ -248,6 +267,8 @@ class ThumbnailModel(QAbstractListModel):
             return self._paths[row]
         if role == IMAGE_SIZE_ROLE:
             return self._image_sizes.get(row)
+        if role == FRAME_COLOR_ROLE:
+            return self._frame_color(row)
         if role == Qt.ItemDataRole.DecorationRole:
             return self._thumbnail(row)
         return None
@@ -256,11 +277,39 @@ class ThumbnailModel(QAbstractListModel):
         if row in self._thumbnails:
             return self._thumbnails[row]
         if row not in self._requested:
-            # The frame does not wait for the thumbnail: the status check goes first.
-            if row not in self._reports:
+            # The frame does not wait for the thumbnail: the status check goes first, and
+            # cached metadata answer it right away, before the frame is first painted.
+            if row not in self._reports and not self._use_cached_status(row):
                 self._request_status(row, urgent=True)
             self._start_thumbnail_loader(row)
         return _empty_canvas()
+
+    def _frame_color(self, row: int) -> QColor | None:
+        report = self._reports.get(row)
+        if report is not None and report.status in FRAME_COLORS:
+            return FRAME_COLORS[report.status]
+        if row in self._thumbnails:
+            return None
+        return CACHED_PLACEHOLDER_COLOR if row in self._from_cache else PLACEHOLDER_COLOR
+
+    def _use_cached_status(self, row: int) -> bool:
+        """Take the status of `row` from the cache, if it has the metadata."""
+        status = self._cached_checker(self._paths[row]) if self._cached_checker else None
+        if status is None:
+            return False
+        pending = self._status_jobs.pop(row, None)
+        if pending is not None:
+            pending.cancelled = True
+        self._set_status(row, status)
+        # Called while the view paints: tell it (and the filter) about the change later.
+        generation = self._generation
+        QTimer.singleShot(0, self, lambda: self._announce_status(generation, row))
+        return True
+
+    def _announce_status(self, generation: int, row: int) -> None:
+        if generation == self._generation:
+            index = self.index(row)
+            self.dataChanged.emit(index, index, [SYNC_ROLE, IMAGE_SIZE_ROLE, FRAME_COLOR_ROLE])
 
     def _start_thumbnail_loader(self, row: int) -> None:
         self._requested.add(row)
@@ -296,17 +345,21 @@ class ThumbnailModel(QAbstractListModel):
         pending = self._status_jobs.get(row)
         if pending is not None and pending.job_id == job_id:
             del self._status_jobs[row]
+        self._set_status(row, status)
+        index = self.index(row)
+        self.dataChanged.emit(index, index, [SYNC_ROLE, IMAGE_SIZE_ROLE, FRAME_COLOR_ROLE])
+
+    def _set_status(self, row: int, status: ImageStatus) -> None:
         self._reports[row] = status.report
-        changed_roles = [SYNC_ROLE]
+        if status.cached:
+            self._from_cache.add(row)
+        else:
+            self._from_cache.discard(row)
         if row not in self._thumbnails and status.image_size:
             # Lets the frame be drawn before the thumbnail arrives.
-            size = QSize(*status.image_size).scaled(
+            self._image_sizes[row] = QSize(*status.image_size).scaled(
                 THUMBNAIL_SIZE, Qt.AspectRatioMode.KeepAspectRatio
             )
-            self._image_sizes[row] = size
-            changed_roles.append(IMAGE_SIZE_ROLE)
-        index = self.index(row)
-        self.dataChanged.emit(index, index, changed_roles)
         self._report_progress()
 
     def _on_thumbnail_loaded(self, generation: int, row: int, image: QImage) -> None:
@@ -321,7 +374,9 @@ class ThumbnailModel(QAbstractListModel):
         painter.end()
         self._thumbnails[row] = canvas
         index = self.index(row)
-        self.dataChanged.emit(index, index, [Qt.ItemDataRole.DecorationRole, IMAGE_SIZE_ROLE])
+        self.dataChanged.emit(
+            index, index, [Qt.ItemDataRole.DecorationRole, IMAGE_SIZE_ROLE, FRAME_COLOR_ROLE]
+        )
 
     def _report_progress(self) -> None:
         self.statuses_progress.emit(len(self._reports), len(self._paths))
@@ -343,7 +398,8 @@ def _placeholder_image() -> QImage:
 
 
 class ThumbnailDelegate(QStyledItemDelegate):
-    """Draws a frame around the thumbnail when its metadata is out of sync with the master."""
+    """Draws a frame around the thumbnail when its metadata is out of sync with the master,
+    and a placeholder frame while the thumbnail is being decoded."""
 
     def paint(
         self,
@@ -352,11 +408,12 @@ class ThumbnailDelegate(QStyledItemDelegate):
         index: QModelIndex | QPersistentModelIndex,
     ) -> None:
         super().paint(painter, option, index)
-        report = index.data(SYNC_ROLE)
-        color = FRAME_COLORS.get(report.status) if report else None
-        image_size = index.data(IMAGE_SIZE_ROLE)
-        if color is None or image_size is None:  # the status may come before the thumbnail
+        color = index.data(FRAME_COLOR_ROLE)
+        if color is None:
             return
+        # Until the metadata or the thumbnail tell the image size, the frame takes the
+        # whole thumbnail area.
+        image_size = index.data(IMAGE_SIZE_ROLE) or THUMBNAIL_SIZE
 
         item_option = QStyleOptionViewItem(option)
         self.initStyleOption(item_option, index)
@@ -414,9 +471,14 @@ class ThumbnailView(QListView):
     image_activated = Signal(Path)  # double click
     selection_changed = Signal()
 
-    def __init__(self, checker: SyncChecker, parent=None) -> None:
+    def __init__(
+        self,
+        checker: SyncChecker,
+        parent=None,
+        cached_checker: CachedSyncChecker | None = None,
+    ) -> None:
         super().__init__(parent)
-        self.thumbnail_model = ThumbnailModel(checker, self)
+        self.thumbnail_model = ThumbnailModel(checker, self, cached_checker)
         self.status_filter = SyncStatusFilter(self)
         self.status_filter.setSourceModel(self.thumbnail_model)
         # Connected before setModel(), so it runs before the selection model would move

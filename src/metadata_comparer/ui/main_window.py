@@ -8,13 +8,15 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QSplitter,
     QToolBar,
     QWidget,
 )
 
+from metadata_comparer import __version__
 from metadata_comparer.config import Config, save_config
-from metadata_comparer.metadata.cache import MetadataCache, cached_tags
+from metadata_comparer.metadata.cache import CACHE_VERSION, MetadataCache, cached_tags
 from metadata_comparer.metadata.mapping import FieldMapping, load_mappings
 from metadata_comparer.metadata.reader import read_metadata
 from metadata_comparer.metadata.sources import RawMetadata, Source
@@ -74,7 +76,7 @@ class MainWindow(QMainWindow):
         self._cache_save_timer.start()
 
         self.folder_tree = FolderTree()
-        self.thumbnails = ThumbnailView(self._check_sync)
+        self.thumbnails = ThumbnailView(self._check_sync, cached_checker=self._cached_status)
         self.thumbnails.set_check_all(self._config.cache_enabled)
         self.metadata_panel = MetadataPanel(
             self._mappings,
@@ -238,6 +240,11 @@ class MainWindow(QMainWindow):
         if self._config.cache_enabled:
             # A folder without a cache file is scanned completely to build it.
             self._cache = MetadataCache.load(folder, self._cache_tags)
+        outdated = self._cache is not None and self._cache.outdated_by is not None
+        if outdated:
+            # The scan waits until the user has been told why the folder is read again.
+            self.thumbnails.set_check_all(False)
+            QTimer.singleShot(0, self, lambda: self._refresh_outdated_cache(folder))
         self.rescan_action.setEnabled(True)
         if self._settings is not None:
             self._settings.setValue(LAST_FOLDER_KEY, str(folder))
@@ -247,6 +254,24 @@ class MainWindow(QMainWindow):
         self.metadata_panel.show_image(None)
         count = self.thumbnails.thumbnail_model.rowCount()
         self.statusBar().showMessage(f"{folder} – {count} image(s)")
+
+    def _refresh_outdated_cache(self, folder: Path) -> None:
+        """Tell that the cache of `folder` is invalid, then rebuild it."""
+        cache = self._cache
+        if cache is None or cache.folder != folder or cache.outdated_by is None:
+            return  # meanwhile another folder was opened or caching turned off
+        QMessageBox.information(
+            self,
+            "Metadata cache",
+            f"The metadata cache of\n{folder}\nwas written by another version of Metadata "
+            f"Comparer ({cache.outdated_by}) and is invalid for this version "
+            f"({__version__}, cache version {CACHE_VERSION}).\n\n"
+            "It needs to be refreshed: the metadata of all images will be read again.",
+            QMessageBox.StandardButton.Ok,
+        )
+        cache.outdated_by = None
+        self.thumbnails.set_check_all(self._config.cache_enabled)
+        self.statusBar().showMessage(f"Refreshing the metadata cache of {folder}")
 
     def _read_metadata(self, image: Path, fresh: bool = False) -> RawMetadata:
         """The metadata of `image`, from the cache if it has them, unless `fresh`.
@@ -282,9 +307,23 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _check_sync(self, image: Path) -> ImageStatus:
-        # Runs on thumbnail loader threads; reads one immutable Config snapshot.
+        # Runs on thumbnail loader threads.
+        status = self._cached_status(image)
+        if status is not None:
+            return status
+        return self._status(self._read_metadata(image, fresh=True), cached=False)
+
+    def _cached_status(self, image: Path) -> ImageStatus | None:
+        """The status from the cached metadata of `image`; None if it has none."""
+        cache = self._cache
+        if cache is None or image.parent != cache.folder:
+            return None
+        raw = cache.get(image)
+        return None if raw is None else self._status(raw, cached=True)
+
+    def _status(self, raw: RawMetadata, cached: bool) -> ImageStatus:
+        # Reads one immutable Config snapshot, as loader threads call it too.
         config = self._config
-        raw = self._read_metadata(image)
         report = check_sync(
             raw,
             self._mappings,
@@ -292,7 +331,7 @@ class MainWindow(QMainWindow):
             config.compared_fields,
             config.compared_sources,
         )
-        return ImageStatus(report, raw.image_size)
+        return ImageStatus(report, raw.image_size, cached)
 
     def _show_scan_progress(self, known: int, total: int) -> None:
         scanning = self.thumbnails.thumbnail_model.loads_all and known < total

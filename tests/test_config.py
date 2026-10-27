@@ -2,11 +2,13 @@ import json
 
 import pytest
 
+from metadata_comparer import __version__
 from metadata_comparer.config import (
     Config,
     ConfigError,
     load_config,
     save_config,
+    saved_app_version,
     write_default_config,
 )
 from metadata_comparer.metadata.sources import Source
@@ -91,3 +93,13 @@ def test_cache_enabled_round_trips(tmp_path):
     assert Config().cache_enabled
     save_config(path, Config(cache_enabled=False))
     assert not load_config(path, FIELDS).cache_enabled
+
+
+def test_saved_config_records_the_app_version(tmp_path):
+    path = tmp_path / "config.json"
+    assert saved_app_version(path) is None
+    write(path, {"cache_enabled": False})
+    assert saved_app_version(path) is None
+    save_config(path, Config())
+    assert saved_app_version(path) == __version__
+    assert json.loads(path.read_text(encoding="utf-8"))["app_version"] == __version__

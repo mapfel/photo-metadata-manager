@@ -1,12 +1,17 @@
 import time
 
+import pytest
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QImage
 
 from metadata_comparer.metadata.sync import SyncReport, SyncStatus
 from metadata_comparer.ui.main_window import MainWindow
 from metadata_comparer.ui.thumbnail_view import (
+    CACHED_PLACEHOLDER_COLOR,
+    FRAME_COLOR_ROLE,
+    FRAME_COLORS,
     IMAGE_SIZE_ROLE,
+    PLACEHOLDER_COLOR,
     SYNC_ROLE,
     ImageStatus,
     ThumbnailModel,
@@ -77,3 +82,54 @@ def test_scan_progress_is_shown_while_reading_a_folder(qapp, tmp_path):
     assert progress[0] == (0, 3)
     assert wait_for(lambda: progress[-1] == (3, 3), qapp)
     assert window.scan_progress.isHidden()
+
+
+def frame(model, row=0):
+    return model.data(model.index(row), FRAME_COLOR_ROLE)
+
+
+def test_uncached_image_has_black_frame_until_its_thumbnail(qapp, tmp_path):
+    model = ThumbnailModel(lambda path: ImageStatus(SyncReport(SyncStatus.OK), (40, 30)))
+    model.set_folder(make_folder(tmp_path, 1))
+    assert frame(model) == PLACEHOLDER_COLOR  # before anything is known
+    model.data(model.index(0), Qt.ItemDataRole.DecorationRole)  # displayed
+
+    assert wait_for(lambda: model.data(model.index(0), SYNC_ROLE) is not None, qapp)
+    if not model._thumbnails:
+        assert frame(model) == PLACEHOLDER_COLOR  # in sync: stays until the thumbnail
+    assert wait_for(lambda: model._thumbnails, qapp)
+    assert frame(model) is None
+
+
+def test_mismatch_replaces_the_placeholder_frame(qapp, tmp_path):
+    model = ThumbnailModel(lambda path: ImageStatus(CONFLICT, (40, 30)))
+    model.set_folder(make_folder(tmp_path, 1))
+    model.data(model.index(0), Qt.ItemDataRole.DecorationRole)
+    assert wait_for(lambda: model._thumbnails, qapp)
+    assert frame(model) == FRAME_COLORS[SyncStatus.CONFLICT]  # and stays
+
+
+def test_cached_image_gets_grey_frame_without_waiting(qapp, tmp_path):
+    def cached(path):
+        return ImageStatus(SyncReport(SyncStatus.OK), (30, 40), cached=True)
+
+    model = ThumbnailModel(lambda path: pytest.fail("read"), cached_checker=cached)
+    model.set_folder(make_folder(tmp_path, 1))
+    model.data(model.index(0), Qt.ItemDataRole.DecorationRole)  # the first paint
+
+    assert frame(model) == CACHED_PLACEHOLDER_COLOR  # no thread involved
+    assert model.data(model.index(0), IMAGE_SIZE_ROLE) == QSize(120, 160)  # portrait
+    assert wait_for(lambda: model._thumbnails, qapp)
+    assert frame(model) is None
+
+
+def test_cached_status_is_announced_to_the_view(qapp, tmp_path):
+    model = ThumbnailModel(
+        lambda path: pytest.fail("read"),
+        cached_checker=lambda path: ImageStatus(CONFLICT, cached=True),
+    )
+    model.set_folder(make_folder(tmp_path, 1))
+    changes = []
+    model.dataChanged.connect(lambda first, last, roles: changes.append(roles))
+    model.data(model.index(0), Qt.ItemDataRole.DecorationRole)
+    assert wait_for(lambda: any(SYNC_ROLE in roles for roles in changes), qapp)

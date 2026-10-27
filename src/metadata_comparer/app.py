@@ -4,7 +4,15 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, QStandardPaths
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from metadata_comparer.config import Config, ConfigError, load_config, write_default_config
+from metadata_comparer import __version__
+from metadata_comparer.config import (
+    Config,
+    ConfigError,
+    load_config,
+    save_config,
+    saved_app_version,
+    write_default_config,
+)
 from metadata_comparer.metadata.mapping import load_mappings
 from metadata_comparer.ui.main_window import MainWindow
 
@@ -13,6 +21,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("metadata-comparer")
     app.setApplicationDisplayName("Metadata Comparer")
+    app.setApplicationVersion(__version__)
 
     mappings = load_mappings()
     config_path = _config_path()
@@ -21,6 +30,8 @@ def main() -> int:
         if not config_path.exists():
             write_default_config(config_path)
         config = load_config(config_path, {mapping.name for mapping in mappings})
+        if saved_app_version(config_path) != __version__:
+            save_config(config_path, config)  # records the app version
     except (OSError, ConfigError) as error:
         QMessageBox.warning(None, "Configuration", f"{error}\n\nUsing the default settings.")
         config = Config()

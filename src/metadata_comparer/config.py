@@ -5,6 +5,7 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
+from metadata_comparer import __version__
 from metadata_comparer.metadata.sources import Source
 
 SOURCE_IDS = {source.name.lower(): source for source in Source}
@@ -103,9 +104,21 @@ def save_config(path: Path, config: Config) -> None:
         "sync_fields": list(config.sync_fields),
         "compared_sources": [_source_id(source) for source in config.compared_sources],
         "cache_enabled": config.cache_enabled,
+        # The app version that wrote the file, e.g. to migrate settings in later versions.
+        "app_version": __version__,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+
+def saved_app_version(path: Path) -> str | None:
+    """The app version that last wrote the configuration at `path`, if recorded."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    version = document.get("app_version") if isinstance(document, dict) else None
+    return version if isinstance(version, str) else None
 
 
 def _source_id(source: Source) -> str:

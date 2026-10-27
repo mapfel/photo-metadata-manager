@@ -6,12 +6,17 @@ import threading
 from collections.abc import Collection
 from pathlib import Path
 
+from metadata_comparer import __version__
 from metadata_comparer.metadata.mapping import FieldMapping
 from metadata_comparer.metadata.sources import RawMetadata, Source
 from metadata_comparer.metadata.values import COMPANION_TAGS
 
 CACHE_FILE_NAME = ".mcs-cache"
-CACHE_VERSION = 2  # 2: image sizes, so frames can be drawn before the thumbnails
+# Increase whenever what the cache stores or how it is used changes; caches of another
+# version are invalid and get rebuilt.
+# 2: image sizes, so frames can be drawn before the thumbnails
+# 3: the app version that wrote the cache, and each image's orientation
+CACHE_VERSION = 3
 _SOURCE_IDS = {source.name.lower(): source for source in Source}
 
 
@@ -34,6 +39,9 @@ class MetadataCache:
         self._entries: dict[str, RawMetadata] = {}
         self._lock = threading.Lock()
         self._dirty = False
+        # Set by load() when the file was written with another cache version: the version
+        # of the app that wrote it ("unknown" for caches older than version 3).
+        self.outdated_by: str | None = None
 
     @property
     def path(self) -> Path:
@@ -47,11 +55,14 @@ class MetadataCache:
     @classmethod
     def load(cls, folder: Path, tags: frozenset[str]) -> "MetadataCache":
         """The cache stored in `folder`; empty if there is none or it is unusable, e.g.
-        written for other mappings or by another version."""
+        written for other mappings or by another version (see `outdated_by`)."""
         cache = cls(folder, tags)
         try:
             document = json.loads(cache.path.read_text(encoding="utf-8"))
-            if document["version"] != CACHE_VERSION or set(document["tags"]) != tags:
+            if document["version"] != CACHE_VERSION:
+                cache.outdated_by = str(document.get("app_version", "unknown"))
+                return cache
+            if set(document["tags"]) != tags:
                 return cache
             cache._entries = {
                 name: _raw_from_json(folder, entry) for name, entry in document["images"].items()
@@ -109,6 +120,7 @@ class MetadataCache:
         with self._lock:
             document = {
                 "version": CACHE_VERSION,
+                "app_version": __version__,
                 "tags": sorted(self._tags),
                 "images": {name: _raw_to_json(raw) for name, raw in self._entries.items()},
             }
@@ -127,6 +139,7 @@ def _raw_to_json(raw: RawMetadata) -> dict:
     return {
         "sidecar": raw.sidecar_path.name if raw.sidecar_path else None,
         "size": list(raw.image_size) if raw.image_size else None,
+        "orientation": raw.orientation,
         "tags": {source.name.lower(): tags for source, tags in raw.tags.items()},
     }
 

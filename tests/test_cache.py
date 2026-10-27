@@ -4,8 +4,14 @@ import time
 import pytest
 from PySide6.QtGui import QImage
 
+from metadata_comparer import __version__
 from metadata_comparer.config import Config
-from metadata_comparer.metadata.cache import CACHE_FILE_NAME, MetadataCache, cached_tags
+from metadata_comparer.metadata.cache import (
+    CACHE_FILE_NAME,
+    CACHE_VERSION,
+    MetadataCache,
+    cached_tags,
+)
 from metadata_comparer.metadata.mapping import load_mappings
 from metadata_comparer.metadata.sources import RawMetadata, Source
 from metadata_comparer.metadata.sync import SyncStatus
@@ -83,8 +89,10 @@ def test_unreadable_metadata_is_not_cached(tmp_path):
     [
         "not json",
         json.dumps({"version": 999, "tags": sorted(TAGS), "images": {}}),
-        json.dumps({"version": 1, "tags": ["Xmp.xmp.Rating"], "images": {"a.jpg": {}}}),
-        json.dumps({"version": 1, "tags": sorted(TAGS), "images": {"a.jpg": {"tags": 1}}}),
+        json.dumps({"version": CACHE_VERSION, "tags": ["Xmp.xmp.Rating"], "images": {"a.jpg": {}}}),
+        json.dumps(
+            {"version": CACHE_VERSION, "tags": sorted(TAGS), "images": {"a.jpg": {"tags": 1}}}
+        ),
     ],
 )
 def test_unusable_cache_file_gives_empty_cache(tmp_path, content):
@@ -230,3 +238,66 @@ def test_cached_folder_draws_frames_without_reading_files(qapp, tmp_path, monkey
     model = window.thumbnails.thumbnail_model
     assert status(window, 0, qapp) == SyncStatus.CONFLICT
     assert model.data(model.index(0), IMAGE_SIZE_ROLE) is not None  # frame can be drawn
+
+
+def test_cache_records_app_version_and_orientation(tmp_path):
+    cache = MetadataCache(tmp_path, TAGS)
+    cache.put(tmp_path / "a.jpg", RawMetadata(tags={}, image_size=(3000, 4000)))
+    cache.put(tmp_path / "b.jpg", RawMetadata(tags={}, image_size=(4000, 3000)))
+    cache.save()
+    document = json.loads((tmp_path / CACHE_FILE_NAME).read_text(encoding="utf-8"))
+    assert document["version"] == CACHE_VERSION
+    assert document["app_version"] == __version__
+    assert document["images"]["a.jpg"]["orientation"] == "portrait"
+    assert document["images"]["b.jpg"]["orientation"] == "landscape"
+    assert MetadataCache.load(tmp_path, TAGS).outdated_by is None
+
+
+@pytest.mark.parametrize(
+    ("document", "outdated_by"),
+    [
+        ({"version": 2, "tags": [], "images": {}}, "unknown"),  # before app versions
+        ({"version": CACHE_VERSION + 1, "app_version": "9.0.0", "images": {}}, "9.0.0"),
+    ],
+)
+def test_cache_of_other_version_is_outdated(tmp_path, document, outdated_by):
+    (tmp_path / CACHE_FILE_NAME).write_text(json.dumps(document), encoding="utf-8")
+    cache = MetadataCache.load(tmp_path, TAGS)
+    assert len(cache) == 0
+    assert cache.outdated_by == outdated_by
+
+
+def test_cache_for_other_mappings_is_not_outdated(tmp_path):
+    document = {"version": CACHE_VERSION, "tags": ["Xmp.xmp.Rating"], "images": {}}
+    (tmp_path / CACHE_FILE_NAME).write_text(json.dumps(document), encoding="utf-8")
+    assert MetadataCache.load(tmp_path, TAGS).outdated_by is None
+
+
+def test_outdated_cache_is_refreshed_after_the_message(qapp, tmp_path, monkeypatch):
+    make_jpeg(tmp_path / "a.jpg")
+    make_jpeg(tmp_path / "b.jpg")
+    old = {"version": 2, "tags": sorted(TAGS), "images": {"a.jpg": {}, "b.jpg": {}}}
+    (tmp_path / CACHE_FILE_NAME).write_text(json.dumps(old), encoding="utf-8")
+    messages = []
+
+    def information(parent, title, text, buttons):
+        # The folder is not scanned before the user has read the message.
+        assert not window.thumbnails.thumbnail_model.loads_all
+        messages.append(text)
+        return buttons
+
+    monkeypatch.setattr(main_window_module.QMessageBox, "information", information)
+    window = MainWindow()
+    window._show_folder(tmp_path)
+    assert wait_for(lambda: messages, qapp)
+    assert "unknown" in messages[0] and __version__ in messages[0]
+    assert window.thumbnails.thumbnail_model.loads_all
+
+    assert wait_for(lambda: len(window._cache) == 2, qapp)
+    window._save_cache()
+    document = json.loads((tmp_path / CACHE_FILE_NAME).read_text(encoding="utf-8"))
+    assert (document["version"], document["app_version"]) == (CACHE_VERSION, __version__)
+
+    window._show_folder(tmp_path)  # valid now: no message
+    qapp.processEvents()
+    assert len(messages) == 1

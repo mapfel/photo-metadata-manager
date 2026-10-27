@@ -25,3 +25,12 @@ class RawMetadata:
     errors: list[str] = field(default_factory=list)
     # Width and height in pixels as displayed, i.e. with the Exif orientation applied.
     image_size: tuple[int, int] | None = None
+
+    @property
+    def orientation(self) -> str | None:
+        """The shape as displayed, from `image_size`: "portrait", or "landscape" (also for
+        square images)."""
+        if self.image_size is None:
+            return None
+        width, height = self.image_size
+        return "portrait" if height > width else "landscape"
