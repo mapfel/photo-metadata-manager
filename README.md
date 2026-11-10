@@ -164,15 +164,55 @@ pytest
 ruff check . && ruff format --check .
 ```
 
+Run the tests on Windows and in WSL (see [WSL](#wsl)) before committing. A few UI tests
+wait for background threads; on a busy Windows machine they can time out. Rerun them
+before suspecting a bug.
+
+### Versions
+
+- The app version is defined only in `src/metadata_comparer/__init__.py` (`__version__`);
+  `pyproject.toml` reads it from there. It is recorded in `config.json` and in each
+  `.mcs-cache` file.
+- Raise `CACHE_VERSION` in `metadata/cache.py` with every change to what the cache stores
+  or how it is used, and note the change in the comment above it. Caches of another
+  version are reported to the user and rebuilt.
+
+### Performance on slow drives
+
+Photo folders often live on network or cloud drives, e.g. OneDrive under WSL (`/mnt/c`).
+There a `stat()` costs about 8 ms per file and reading a whole 1 MB JPEG 150–325 ms, while
+`os.scandir` lists 800 entries in 13 ms. So:
+
+- list folders with `os.scandir` and avoid a `stat()` or `is_file()` per image;
+- let exiv2 open images by path, so it reads only the metadata. On Windows, paths with
+  non-ASCII characters are the exception: exiv2 mishandles them, so they are read into
+  memory;
+- check a performance change on a copy of a real folder on such a drive, not only on the
+  local disk. Never let scripts write `.mcs-cache` files into real photo folders.
+
 ## Layout
 
 ```
 src/metadata_comparer/
-  metadata/          # UI-independent: reading, field mapping, comparison
-    reader.py        # exiv2 -> raw tags per source, sidecar lookup
+  app.py             # entry point: config.json, state.ini, main window
+  config.py          # Config and its JSON file
+  metadata/          # UI-independent
+    sources.py       # Source enum, RawMetadata
+    reader.py        # exiv2 -> raw tags per source, sidecar lookup, image size
     mapping.yaml     # which tags make up "Author", "Description", ...
+    mapping.py       # loads mapping.yaml
+    values.py        # field kinds: normalizing values for comparing, formatting for writing
     comparison.py    # raw tags + mapping -> table rows
-  ui/                # PySide6 widgets: folder tree, thumbnails, metadata table
+    sync.py          # sync status of an image: OK, missing, conflict
+    writer.py        # writes values to Exif, XMP, sidecar and IPTC
+    cache.py         # per-folder .mcs-cache
+  ui/                # PySide6 widgets
+    main_window.py   # toolbar, cache, wiring
+    folder_tree.py
+    thumbnail_view.py  # thumbnails, frames, status filter, background loading
+    metadata_panel.py  # metadata table of the current image
+    sync_table.py    # interactive table: pick the truth per field and its targets
+    sync_dialog.py   # that table for several images at once
 ```
 
 To show another field, add an entry to `mapping.yaml`; no code change is needed.
